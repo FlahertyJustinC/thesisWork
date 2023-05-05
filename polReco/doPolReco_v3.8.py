@@ -228,6 +228,7 @@ if (dataTypeFlag == 0):
                 rfEventList.append(evt)   
             
 if (dataTypeFlag == 1):
+    #TODO: Make commented code below work with simulated events.
     for evt in range(totalRawEvents):
         # vertexReco.GetEntry(evt)
         eventTree.GetEntry(evt)
@@ -319,8 +320,8 @@ for ch in range(16):
         antennaPositions[ch, coord] = geomTool.getStationInfo(stationID).getAntennaInfo(ch).antLocation[coord]
 
 #Calculate noise envelope and RMS
+#TODO: Add boolean flag for getting noise from soft trigers or event waveforms
 # noiseEnvelope, noiseRms = util.findMeanNoise(softTriggerEventList, eventTree, rawEvent, ROOT)
-# print(eventList)
 noiseEnvelope, noiseRms = util.findMeanNoiseFromWaveform(eventList, eventTree, usefulEvent, ROOT)
 
 if (dataTypeFlag == 0):
@@ -338,8 +339,6 @@ if (dataTypeFlag == 0):
     evt = eventList[0]
     vertexReco.GetEntry(evt)
     eventTree.GetEntry(evt)
-    # This is causing a seg fault when using AraSim outputs
-    # usefulEvent = ROOT.UsefulAtriStationEvent(rawEvent,ROOT.AraCalType.kLatestCalib)
     unixtimeTemp = usefulEvent.unixTime
     date = datetime.utcfromtimestamp(unixtimeTemp)
     #Convert date object from UTC to NZ local time
@@ -360,10 +359,7 @@ if (dataTypeFlag == 0):
     depthFile = pd.read_csv("./"+outputFolder+"/"+pulserDepthFile)
     print("Sourcing pulser depth from " + "./"+outputFolder+"/"+pulserDepthFile) #Debugging JCF 9/14/2022
     time = pd.to_datetime(depthFile.NZ_Time)
-    # time = time.reindex(time)
-    # time = time.tz_localize('NZ').tz_convert("UTC")
     time.head()
-    # newTime = time.apply(lambda dt: dt.replace(day=24, month = 12, year = 2018))
     newTime = time.apply(lambda dt: dt.replace(day=day, month = month, year = year))
     # newTime#Still in NZ local time. Need to translate to UTC
     df = pd.DataFrame(1, index=newTime, columns=['X'])
@@ -381,19 +377,7 @@ for index in range(numEvents):
     evt = eventList[index]
     vertexReco.GetEntry(evt)
     eventTree.GetEntry(evt)
-    # if (dataTypeFlag == 0):
-    #     usefulEvent = ROOT.UsefulAtriStationEvent(rawEvent,ROOT.AraCalType.kLatestCalib)
-    # if (dataTypeFlag == 1):
-    #     #TODO:  Map channels from AraSim format to real data format.
-    #     usefulEvent = ROOT.UsefulAtriStationEvent(rawEvent,ROOT.AraCalType.kLatestCalib)
     powerOut[index], snrsOut[index] = util.powerFromWaveformSubtractHilbertNoise(rawEvent, usefulEvent, vertexReco, ROOT, noiseEnvelope, noiseRms, gainBalance = gainBalance, gainCorrection = powerNoiseConstant)
-    # recoROut[index], psiRecoOut[index] = util.calculatePsiAndR(powerOut[index])
-    
-    # unixtime[index] = vertexReco.unixTime
-    # pulserDepth[index] = f(unixtime[index])
-    # print("Pulser Depth = " + str(pulserDepth[index])) #Debugging - JCF 9/14/2022
-    # testMarker = (unixtime[index] < unixTimeDepth.max()) and (unixtime[index] > unixTimeDepth.min())
-    # print("Unix Time = " + str(unixtime[index]) + " " + str(testMarker)) #Debugging - JCF 9/14/2022
     
     evt_num[index] = usefulEvent.eventNumber
     runNumberOut[index] = runNumber
@@ -411,61 +395,15 @@ for index in range(numEvents):
     hilbertPeakOut[index], peakTimeOut[index], dummySnr = util.peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=False, gainCorrection=None, deconvolution=deconvolution, tolerance=tolerance, solution=solution, timeShift=0)
     recoROut[index], psiRecoOut[index] = util.calculatePsiAndR(hilbertPeakOut[index]**2)
     
-#     #Keith Timing Cut
-#     t = peakTimeOut[index,testChannels]*1e-9 #Needs to be converted from ns to seconds
-#     tx = np.zeros(3)
-#     tx[:2] = spiceInA2Frame
-#     tx[2] = -pulserDepth[index]
-#     rx = np.zeros((3,3))
-#     tExpected = np.zeros(3)
-
-#     for i in range(3):
-#         channel = testChannels[i]
-#         rx[i,:] = antennaPositions[channel]
-#         tExpected[i] = ROOT.prop_time_s(tx, rx[i])
-    
-#     timingCutPass[index] = ROOT.time_cut(tx, rx[0,:], rx[1,:], rx[2,:], t, dt=dt)
-    
-#     timingDifferenceMeasured[index,0] = t[0]-t[1]
-#     timingDifferenceMeasured[index,1] = t[0]-t[2]
-#     timingDifferenceMeasured[index,2] = t[1]-t[2]
-    
-#     timingDifferenceExpected[index,0] = tExpected[0]-tExpected[1]
-#     timingDifferenceExpected[index,1] = tExpected[0]-tExpected[2]
-#     timingDifferenceExpected[index,2] = tExpected[1]-tExpected[2]
-    
     
 deltaTPeakOut = peakTimeOut[:,8:] - peakTimeOut[:,:8] 
 
 print("Events processed!")
 
 #Write calculations for condition where we swap HPol RF with HPol soft-trigger.
-
 powerSoftTriggerHpolOut[:,:8] = powerOut[:,:8]
 hilbertPeakSoftTriggerHpolOut[:,:8] = hilbertPeakOut[:,:8]
 softTriggerPeakTime = np.zeros((numEvents,16))
-
-# for index in range(numEvents):
-#     evt = softTriggerEventList[index % numSoftTriggerEvents]
-#     evtVertexReco = rfEventList[index % numSoftTriggerEvents]
-#     # vertexReco.GetEntry(evt)  #Testing using the vertex reco info from the rf events to prevent the soft trigger power from being larger than the rf events.
-#     vertexReco.GetEntry(evtVertexReco)
-#     eventTree.GetEntry(evt)
-#     if (dataTypeFlag == 0):
-#         usefulEvent = ROOT.UsefulAtriStationEvent(rawEvent,ROOT.AraCalType.kLatestCalib)
-
-#     powerOutSoft, snrsOutSoft = util.powerFromWaveformSubtractHilbertNoise(rawEvent, usefulEvent, vertexReco, ROOT, noiseEnvelope, noiseRms, gainBalance=gainBalance, gainCorrection = powerNoiseConstant)
-#     powerSoftTriggerHpolOut[index,8:] = powerOutSoft[8:]
-    
-#     hilbertPeak, softTriggerPeakTime[index], dummySnr = util.peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=False, gainCorrection=powerNoiseConstant, deconvolution=deconvolution, tolerance=tolerance)
-#     hilbertPeakSoftTriggerHpolOut[index,8:] = hilbertPeak[8:]
-    
-#     recoRSoftTriggerHpolOut[index], psiRecoSoftTriggerHpolOut[index] = util.calculatePsiAndR(hilbertPeakSoftTriggerHpolOut[index]**2)
-    
-#     powerNoiseFromSoftTriggerOut[index] = util.powerFromSoftTriggerNoDeconvolution(rawEvent, usefulEvent, ROOT)
-    
-# deltaTPeakSoftHpolOut = peakTimeOut[:,8:] - softTriggerPeakTime[:,:8] 
-# print("Generated samples where HPol RF swapped out for Soft-trigger!")
 
 #Import MCTruth values for AraSim results
 if (dataTypeFlag == 1):
@@ -482,16 +420,6 @@ if (dataTypeFlag == 1):
     
 
 #Save data to pandas file
-# original_df = pd.DataFrame({"runNumber":runNumberOut, "runSubsetNumber":runSubsetNumberOut, "eventNumber":evt_num.tolist(),   "timeStamp":timeStamp.tolist(), "runEventNumber":runEventNumber.tolist(),
-#                             "thetaReco":thetaRecoOut.tolist(), "phiReco":phiRecoOut.tolist(), "thetaVertex":thetaVertexOut.tolist(), "phiVertex":phiVertexOut.tolist(), 
-#                             "SNR":snrsOut.tolist(), "vSNR":snrsOut[:,:8].mean(axis=1).tolist(), "hSNR":snrsOut[:,8:].mean(axis=1).tolist(), "whichSol":whichSol.tolist(), "unixtime":unixtime.tolist(), 
-#                             "power":powerOut.tolist(), "recoR":recoROut.tolist(), "psiReco":psiRecoOut.tolist(),
-#                             "powerSoftTriggerHpol":powerSoftTriggerHpolOut.tolist(),  "recoRSoftTriggerHpol":recoRSoftTriggerHpolOut.tolist(), "psiRecoSoftTriggerHpol":psiRecoSoftTriggerHpolOut.tolist(), "deltaTPeaksSoftHpol":deltaTPeakSoftHpolOut.tolist(),
-#                             "powerNoiseFromSoftTrigger":powerNoiseFromSoftTriggerOut.tolist(), "pulserDepth":pulserDepth.tolist(),
-#                            "hilbertPeaks":hilbertPeakOut.tolist(), "peakTimes":peakTimeOut.tolist(), "deltaTPeaks":deltaTPeakOut.tolist(), "hilbertPeaksSoftTriggerHpol":hilbertPeakSoftTriggerHpolOut.tolist(),
-#                            "timingChannels":timingChannelsOut.tolist(), "timingCutPass":timingCutPass.tolist(), "timingDifferenceMeasured":timingDifferenceMeasured.tolist(), "timingDifferenceExpected":timingDifferenceExpected.tolist()})
-
-
 original_df = pd.DataFrame({"runNumber":runNumberOut, "runSubsetNumber":runSubsetNumberOut, "eventNumber":evt_num.tolist(),   "timeStamp":timeStamp.tolist(), "runEventNumber":runEventNumber.tolist(),
                             "thetaReco":thetaRecoOut.tolist(), "phiReco":phiRecoOut.tolist(), "thetaVertex":thetaVertexOut.tolist(), "phiVertex":phiVertexOut.tolist(), 
                             "SNR":snrsOut.tolist(), "vSNR":snrsOut[:,:8].mean(axis=1).tolist(), "hSNR":snrsOut[:,8:].mean(axis=1).tolist(), "whichSol":whichSol.tolist(), "unixtime":unixtime.tolist(), 
@@ -499,13 +427,7 @@ original_df = pd.DataFrame({"runNumber":runNumberOut, "runSubsetNumber":runSubse
                             "powerNoiseFromSoftTrigger":powerNoiseFromSoftTriggerOut.tolist(), "pulserDepth":pulserDepth.tolist(),
                            "hilbertPeaks":hilbertPeakOut.tolist(), "peakTimes":peakTimeOut.tolist(), "deltaTPeaks":deltaTPeakOut.tolist(), "hilbertPeaksSoftTriggerHpol":hilbertPeakSoftTriggerHpolOut.tolist(),
                            "timingChannels":timingChannelsOut.tolist(), "timingCutPass":timingCutPass.tolist(), "timingDifferenceMeasured":timingDifferenceMeasured.tolist(), "timingDifferenceExpected":timingDifferenceExpected.tolist()})
-
-
-
-# timingChannels = [0,2,4]
-# timingCutPass = np.zeros(numEvents)
-# timingDifferenceMeasured = np.zeros((numEvents,3))
-# timingDifferenceExpected = np.zeros((numEvents,3))    
+ 
 
 #Create output directory if it doesn't already exist
 outputFolder += "/run_0"+str(runNumber)+"/"

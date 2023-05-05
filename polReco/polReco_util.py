@@ -1327,6 +1327,7 @@ def powerFromSoftTriggerNoDeconvolution(rawEvent, usefulEvent, ROOT):
 
 # def peakHilbert(rawEvent, usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=False, gainCorrection=None, tolerance=10, timeShift=14.1, debug=False, deconvolution=True, solution='D'):
 def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=False, gainCorrection=None, tolerance=10, timeShift=14.1, debug=False, deconvolution=True, solution='D'):
+    #TODO: Update this to find peak from HPol when HPol is larger than VPol, or by user command (some kind off flag)
     import ROOT
     from scipy.signal import hilbert
     #TODO:  Need to write gainBalance for finding noise from the waveform.
@@ -1374,8 +1375,6 @@ def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=Fa
         voltage, time = extractChannelWaveform(usefulEvent, ch)
             
         #Calculate Hilbert envelope of waveform
-        # analytical_signal_rf = hilbert(voltage)  #Real component is the initial data.  Imaginary component is the Hilbert transform
-        # amplitude_envelope_rf = np.abs(analytical_signal_rf) #Magnitude is the envelope of the function
         amplitude_envelope_rf = getHilbertEnvelopeSingleChannel(voltage)
         
         #Perform noise subtraction of Hilbert Envelope
