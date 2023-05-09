@@ -1397,8 +1397,6 @@ def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=Fa
                 deConv_v = voltage
             #Find peak of VPol waveform
             # #Calculate Hilbert envelope of deconvolved waveform
-            # analytical_signal_rf = hilbert(deConv_v)  #Real component is the initial data.  Imaginary component is the Hilbert transform
-            # amplitude_envelope_rf = np.abs(analytical_signal_rf) #Magnitude is the envelope of the function
             amplitude_envelope_rf = getHilbertEnvelopeSingleChannel(deConv_v)
             if solution in ["D", "d", "Direct", "direct", 0]:
                 amplitude_envelope_rf = amplitude_envelope_rf[deConv_t<cutoffTime[ch]]
@@ -1414,11 +1412,6 @@ def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=Fa
                 sys.exit()        
                 
             envelopePeak = max(amplitude_envelope_rf)
-            # #Isolate envelope to first peak using the cutoff time
-            # amplitude_envelope_rf = amplitude_envelope_rf[deConv_t<cutoffTime[ch]]
-            # envelopePeak = max(amplitude_envelope_rf)
-            # #Truncate time as well
-            # deConv_t = deConv_t[deConv_t<cutoffTime[ch]]
             
         else:  #HPol case
             if (deconvolution):
@@ -1427,10 +1420,7 @@ def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=Fa
             else:
                 deConv_t = time
                 deConv_v = voltage
-            #Calculate Hilbert envelope of deconvolved waveform
-            # analytical_signal_rf = hilbert(deConv_v)  #Real component is the initial data.  Imaginary component is the Hilbert transform
-            # amplitude_envelope_rf = np.abs(analytical_signal_rf) #Magnitude is the envelope of the function
-            
+            #Calculate Hilbert envelope of deconvolved waveform        
             amplitude_envelope_rf = getHilbertEnvelopeSingleChannel(deConv_v)
         
             #Isolate envelope to first peak using the cutoff time
@@ -1441,17 +1431,12 @@ def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=Fa
                 minTime = peakTime[ch-8]-tolerance[0]-timeShift
                 maxTime = peakTime[ch-8]+tolerance[1]-timeShift
             # #Add condition where minTime is less than the start time of the waveform
-            # if (minTime < deConv_t[0]):
-            #     maxTime += abs(minTime - deConv_t[0])
-            #     minTime = deConv_t[0]                
-            # print("Channel: " + str(ch) + " Min, max time: " + str(minTime) + ", " + str(maxTime)) #Debugging
             peakWindowHpol = (deConv_t>=minTime)*(deConv_t<=maxTime)
             peakWindows[ch-8,0] = minTime
             peakWindows[ch-8,1] = maxTime
             #TODO:  Add condition where if peakWindowHpol is empty, return some kind of flag for the amplitude to know it needs to be removed.
             #Make it a clean whole number, because we never expect that and can easily filter for it.
             amplitude_envelope_rf = amplitude_envelope_rf[peakWindowHpol]
-            # envelopePeak = max(amplitude_envelope_rf)
             try:
                 envelopePeak = max(amplitude_envelope_rf)
             except ValueError as ve:
