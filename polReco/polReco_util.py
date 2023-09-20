@@ -353,7 +353,7 @@ def deDisperse(time, voltage, theta, phi):
     deDis_wf = doInvFFT(deDis_wf)
     return time, deDis_wf
 
-def deConvolve_antenna(time, voltage, theta, phi, pol_ant):
+def deConvolve_antenna(time, voltage, theta, phi, pol_ant, channel=None, station=None, configuration=None):
     """
     Apply inverse of ARA antenna response
     ----------
@@ -374,23 +374,24 @@ def deConvolve_antenna(time, voltage, theta, phi, pol_ant):
     import scipy.signal as signal
     polarization=np.array([-np.sin(phi),np.cos(phi),-1/np.sin(theta)]) #This is just a factor to cancel out aspects of the antenna response in PyRex. - JCF 8/30/2022
     if(pol_ant == 0):
-        ant = ara.VpolAntenna(name="Dummy Vpol", position=(0, 0, 0), power_threshold=0)
+        ant = ara.VpolAntenna(name="Dummy Vpol", position=(0, 0, 0), power_threshold=0, channel=channel, station=station, configuration=configuration)
         # ant.set_orientation(z_axis=(0, 0, 1), x_axis=(1, 0, 0))#Adding to convert from global coordinates to local antenna coords.
     elif(pol_ant == 1):
-        ant = ara.HpolAntenna(name="Dummy Hpol", position=(0, 0, 0), power_threshold=0)
+        ant = ara.HpolAntenna(name="Dummy Hpol", position=(0, 0, 0), power_threshold=0, channel=channel, station=station, configuration=configuration)
         # ant.set_orientation(z_axis=(0, 0, 1), x_axis=(1, 0, 0))
 
     sampRate = len(time)/(max(time)-min(time))
     b,a = signal.bessel(4, [0.15,0.4], 'bandpass', analog=False, fs=sampRate)
     fft_v, fft_f, dT = doFFT(time,voltage)
-    response_filter = np.array(interpolate_filter(fft_f*1E6))
+    # response_filter = np.array(interpolate_filter(fft_f*1E6))
+    # response_filter = np.array(ara.interpolate_filter(fft_f*1E6))
     dir_res = ant.antenna.directional_response(theta=theta, phi=phi, polarization=polarization)(fft_f*1E6)
     heff = ant.antenna.frequency_response(fft_f*1E6)
     response_antenna = dir_res*heff
     response = response_antenna
     deDis_wf = np.divide(fft_v,abs(response))
     response = np.divide(response,abs(response))
-    deDis_wf = np.divide(deDis_wf,response)
+    deDis_wf = np.divide(deDis_wf,response)  #What is the purpose of this step?  The waveform seems to break without it. - JCF 6/19/2023
     deDis_wf = np.nan_to_num(deDis_wf)
     revert = doInvFFT(deDis_wf)
     deDis_wf = signal.lfilter(b, a, revert)
@@ -1169,7 +1170,10 @@ def powerFromWaveformSubtractHilbertNoise(rawEvent, usefulEvent, vertexReco, ROO
         amplitude_envelope_rf = np.abs(analytical_signal_rf) #Magnitude is the envelope of the function
         
         #Perform noise subtraction of Hilbert Envelope
-        envelopeAfterSubtraction = amplitude_envelope_rf - noiseEnvelope[ch]
+        if (noiseEnvelope is None):
+            envelopeAfterSubtraction = amplitude_envelope_rf
+        else:
+            envelopeAfterSubtraction = amplitude_envelope_rf - noiseEnvelope[ch]
         envelopePeak = max(envelopeAfterSubtraction)
         #Find noise reduction ratio
         noiseReductionRatio = envelopeAfterSubtraction/amplitude_envelope_rf
@@ -1204,7 +1208,7 @@ def powerFromWaveformSubtractHilbertNoise(rawEvent, usefulEvent, vertexReco, ROO
     return power, snrsOut
 
 
-def findMeanNoise(eventList, eventTree, rawEvent, ROOT):
+def findMeanNoise(eventList, eventTree, rawEvent, ROOT, waveformSampleNs = None):
     from scipy.signal import hilbert
     allEnvelopes = np.zeros(16)
     numEntries = np.zeros(16)
@@ -1230,6 +1234,9 @@ def findMeanNoise(eventList, eventTree, rawEvent, ROOT):
                 #v.append(gr.GetY()[k])
                 t[k] = gr.GetX()[k]
                 v[k] = gr.GetY()[k]
+            if (waveformSampleNs is not None):
+                t = t[:2*waveformSampleNs]
+                v = v[:2*waveformSampleNs]
             analytical_signal_soft = hilbert(v)  #Real component is the initial data.  Imaginary component is the Hilbert transform
             amplitude_envelope_soft = np.abs(analytical_signal_soft) #Magnitude is the envelope of the function
             noiseMean[ch] = amplitude_envelope_soft.mean()
@@ -1326,7 +1333,7 @@ def powerFromSoftTriggerNoDeconvolution(rawEvent, usefulEvent, ROOT):
     return power
 
 # def peakHilbert(rawEvent, usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=False, gainCorrection=None, tolerance=10, timeShift=14.1, debug=False, deconvolution=True, solution='D'):
-def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=False, gainCorrection=None, tolerance=10, timeShift=14.1, debug=False, deconvolution=True, solution='D'):
+def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=False, gainCorrection=None, tolerance=10, timeShift=14.1, debug=False, deconvolution=True, solution='D', station=2, configuration=None):
     #TODO: Update this to find peak from HPol when HPol is larger than VPol, or by user command (some kind off flag)
     import ROOT
     from scipy.signal import hilbert
@@ -1369,100 +1376,169 @@ def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=Fa
         for ch in range(0,16):
             voltage, time = extractChannelWaveform(usefulEvent, ch)
             cutoffTime[ch] = time[-1]
-        
-    #Loop over channels
-    for ch in range(0,16):      
-        voltage, time = extractChannelWaveform(usefulEvent, ch)
-            
-        #Calculate Hilbert envelope of waveform
-        amplitude_envelope_rf = getHilbertEnvelopeSingleChannel(voltage)
-        
-        #Perform noise subtraction of Hilbert Envelope
-        envelopeAfterSubtraction = amplitude_envelope_rf - noiseEnvelope[ch]
-        #Isolate envelope to first peak using the cutoff time
-        # envelopeAfterSubtraction = envelopeAfterSubtraction[time<cutoffTime[ch]]
-        # envelopePeak = max(envelopeAfterSubtraction)
-        #Find noise reduction ratio
-        noiseReductionRatio = envelopeAfterSubtraction/amplitude_envelope_rf
-        #Apply noise reduction ratio to waveform
-        voltage *= noiseReductionRatio  #commenting out for debugging.        
-        
-        #Perform deconvolution after noise subtraction.
-        if (ch<8):  #VPol case
-            if (deconvolution):
-                #Perform deconvolution
-                deConv_t,deConv_v = deConvolve_antenna(time, voltage, np.radians(thetaReco[ch]), np.radians(phiReco[ch]), 0)
-            else:
-                deConv_t = time
-                deConv_v = voltage
-            #Find peak of VPol waveform
-            # #Calculate Hilbert envelope of deconvolved waveform
-            amplitude_envelope_rf = getHilbertEnvelopeSingleChannel(deConv_v)
-            if solution in ["D", "d", "Direct", "direct", 0]:
-                amplitude_envelope_rf = amplitude_envelope_rf[deConv_t<cutoffTime[ch]]
-                deConv_t = deConv_t[deConv_t<cutoffTime[ch]]
-            elif solution in ['R', 'r', 'Reflected', 'reflected', 'Refracted', 'refracted', 1]:
-                amplitude_envelope_rf = amplitude_envelope_rf[deConv_t>cutoffTime[ch]]
-                deConv_t = deConv_t[deConv_t>cutoffTime[ch]]
-            elif solution in ['single', 's', 'noise', 'calpulser']:
-                amplitude_envelope_rf = amplitude_envelope_rf
-                deConv_t = deConv_t
-            else:
-                print("Solution choice unknown.  Must choose either direct or reflected/refracted solution.  Exiting.")
-                sys.exit()        
-                
-            envelopePeak = max(amplitude_envelope_rf)
-            
-        else:  #HPol case
-            if (deconvolution):
-                #Perform deconvolution
-                deConv_t,deConv_v = deConvolve_antenna(time, voltage, np.radians(thetaReco[ch]), np.radians(phiReco[ch]), 1)
-            else:
-                deConv_t = time
-                deConv_v = voltage
-            #Calculate Hilbert envelope of deconvolved waveform        
-            amplitude_envelope_rf = getHilbertEnvelopeSingleChannel(deConv_v)
-        
-            #Isolate envelope to first peak using the cutoff time
-            if (np.isscalar(tolerance)):
-                minTime = peakTime[ch-8]-tolerance-timeShift
-                maxTime = peakTime[ch-8]+tolerance-timeShift
-            else:
-                minTime = peakTime[ch-8]-tolerance[0]-timeShift
-                maxTime = peakTime[ch-8]+tolerance[1]-timeShift
-            # #Add condition where minTime is less than the start time of the waveform
-            peakWindowHpol = (deConv_t>=minTime)*(deConv_t<=maxTime)
-            peakWindows[ch-8,0] = minTime
-            peakWindows[ch-8,1] = maxTime
-            #TODO:  Add condition where if peakWindowHpol is empty, return some kind of flag for the amplitude to know it needs to be removed.
-            #Make it a clean whole number, because we never expect that and can easily filter for it.
-            amplitude_envelope_rf = amplitude_envelope_rf[peakWindowHpol]
-            try:
-                envelopePeak = max(amplitude_envelope_rf)
-            except ValueError as ve:
-                print("Hpol envelope empty.  Setting envelopePeak to zero.")
-                envelopePeak=0
-                continue
-            #Truncate time as well
-            deConv_t = deConv_t[peakWindowHpol]
-
-        
-        #Calculate Snr
-        snrsOut[ch] = envelopePeak/noiseRms[ch]
-        hilbertPeak[ch] = envelopePeak
-        peakTime[ch] = deConv_t[np.where(amplitude_envelope_rf == envelopePeak)]
-        
-        
-    #Gain balance needs to be discussed with Amy before we implement it.
+    #Debugging and apply gain balance before deconvolution - JCF 6/16/2023
     if (gainBalance):
         gainCorrectionFactor = gainCorrection[:8]/gainCorrection[8:]
-        hilbertPeak[8:] *= gainCorrectionFactor
+    #End debugging    
+    
+    #TODO: Have this loop over channel pairs instead, so that we may find if VPol or HPol is stronger.    
+    for channelPair in range(8):
+        voltageVpol, timeVpol = extractChannelWaveform(usefulEvent, channelPair)
+        voltageHpol, timeHpol = extractChannelWaveform(usefulEvent, channelPair+8)
+        print("voltageVpol = " +str(voltageVpol))
+        print("voltageHpol = " +str(voltageHpol))
+        
+        #Debugging and apply gain balance before deconvolution - JCF 6/16/2023
+        if (gainBalance):
+            voltageHpol*=gainCorrectionFactor[channelPair]
+        #End debugging    
+        
+        #Calculate Hilbert envelope of waveforms
+        amplitude_envelope_rf_Vpol = getHilbertEnvelopeSingleChannel(voltageVpol)
+        amplitude_envelope_rf_Hpol = getHilbertEnvelopeSingleChannel(voltageHpol)
+        
+        #Perform noise subtraction of Hilbert Envelopes
+        if (noiseEnvelope is not None):
+            envelopeAfterSubtractionVpol = amplitude_envelope_rf_Vpol - noiseEnvelope[channelPair]
+            envelopeAfterSubtractionHpol = amplitude_envelope_rf_Hpol - noiseEnvelope[channelPair+8]
+        else:
+            envelopeAfterSubtractionVpol = amplitude_envelope_rf_Vpol
+            envelopeAfterSubtractionHpol = amplitude_envelope_rf_Hpol           
+        
+        #Find noise reduction ratio
+        noiseReductionRatioVpol = envelopeAfterSubtractionVpol/amplitude_envelope_rf_Vpol
+        noiseReductionRatioHpol = envelopeAfterSubtractionHpol/amplitude_envelope_rf_Hpol
+        
+        #Apply noise reduction ratio to waveform
+        voltageVpol *= noiseReductionRatioVpol
+        voltageHpol *= noiseReductionRatioHpol
+        
+        #Deconvolve waveforms, if desired
+        if (deconvolution):
+            # Debugging - JCF 6/8/2023
+            deConv_t_Vpol,deConv_v_Vpol = deConvolve_antenna(timeVpol, voltageVpol, np.radians(thetaReco[channelPair]), np.radians(phiReco[channelPair]), 0, station=station, channel=channelPair, configuration=configuration)
+            deConv_t_Hpol,deConv_v_Hpol = deConvolve_antenna(timeHpol, voltageHpol, np.radians(thetaReco[channelPair+8]), np.radians(phiReco[channelPair+8]), 1, station=station, channel=channelPair+8, configuration=configuration)
+            # deConv_t_Vpol,deConv_v_Vpol = deConvolve_antennaAraSim(timeVpol, voltageVpol, np.radians(thetaReco[channelPair]), np.radians(phiReco[channelPair]), 0)
+            # deConv_t_Hpol,deConv_v_Hpol = deConvolve_antennaAraSim(timeHpol, voltageHpol, np.radians(thetaReco[channelPair+8]), np.radians(phiReco[channelPair+8]), 1)
+            # End debugging
+        else:
+            deConv_t_Vpol, deConv_v_Vpol = timeVpol, voltageVpol
+            deConv_t_Hpol, deConv_v_Hpol = timeHpol, voltageHpol
+        
+        #Find which channel is stronger.
+        peakVpol = max(envelopeAfterSubtractionVpol)
+        peakHpol = max(envelopeAfterSubtractionHpol)
+        
+        print(peakVpol)
+        print(peakHpol)
+        
+        print(deConv_v_Vpol)
+        print(deConv_v_Hpol)        
+        
+        if (peakVpol > peakHpol):
+            primaryVoltage = deConv_v_Vpol
+            secondaryVoltage = deConv_v_Hpol
+            primaryTime = deConv_t_Vpol
+            secondaryTime = deConv_t_Hpol
+            cutoffTimePair = np.array([cutoffTime[channelPair],cutoffTime[channelPair+8]])
+            primaryPolarization = 0
+            hilbertPeak[channelPair], hilbertPeak[channelPair+8], peakTime[channelPair], peakTime[channelPair+8] = findHilbertForLargerChannel(primaryVoltage, secondaryVoltage, primaryTime, secondaryTime, cutoffTimePair, primaryPolarization, solution=solution, tolerance=tolerance, timeShift=timeShift)
+        else:
+            primaryVoltage = deConv_v_Hpol
+            secondaryVoltage = deConv_v_Vpol
+            primaryTime = deConv_t_Hpol
+            secondaryTime = deConv_t_Vpol
+            cutoffTimePair = np.array([cutoffTime[channelPair+8],cutoffTime[channelPair]])
+            primaryPolarization = 1
+            hilbertPeak[channelPair+8], hilbertPeak[channelPair], peakTime[channelPair+8], peakTime[channelPair] = findHilbertForLargerChannel(primaryVoltage, secondaryVoltage, primaryTime, secondaryTime, cutoffTimePair, primaryPolarization, solution=solution, tolerance=tolerance, timeShift=timeShift)
+            
+    #Calculate Snr.
+    snrsOut = hilbertPeak/noiseRms        
+        
+    #Gain balance needs to be discussed with Amy before we implement it.
+    # #Debugging and apply gain balance before deconvolution - JCF 6/16/2023
+    # if (gainBalance):
+    #     gainCorrectionFactor = gainCorrection[:8]/gainCorrection[8:]
+    #     hilbertPeak[8:] *= gainCorrectionFactor
+    # #End debugging
     
     #return power and snr
-    if (debug):
-        return hilbertPeak, peakTime, snrsOut, peakWindows
+    # if (debug):
+    #     return hilbertPeak, peakTime, snrsOut, peakWindows
+    # else:
+    return hilbertPeak, peakTime, snrsOut
+    
+def findHilbertForLargerChannel(primaryVoltage, secondaryVoltage, primaryTime, secondaryTime, cutoffTimePair, primaryPolarization, solution='single', tolerance=10, timeShift=0):
+    #This function is for use in peakHilbert, which finds the hilbert peaks based on whether the Hpol or Vpol channel has a stronger signal.
+    #The stronger channel serves as the primary voltage in this function, while the weaker partner channel is the secondary.
+    
+    #Calculate hilbert peak of primary channel
+    amplitude_envelope_rf_Primary = getHilbertEnvelopeSingleChannel(primaryVoltage)
+    if solution in ["D", "d", "Direct", "direct", 0]:
+        amplitude_envelope_rf_Primary = amplitude_envelope_rf_Primary[primaryTime<cutoffTimePair[0]]
+        primaryTime = primaryTime[primaryTime<cutoffTimePair[0]]
+    elif solution in ['R', 'r', 'Reflected', 'reflected', 'Refracted', 'refracted', 1]:
+        amplitude_envelope_rf_Primary = amplitude_envelope_rf_Primary[primaryTime>cutoffTimePair[0]]
+        primaryTime = primaryTime[primaryTime>cutoffTimePair[0]]
+    elif solution in ['single', 's', 'noise', 'calpulser']:
+        amplitude_envelope_rf_Primary = amplitude_envelope_rf_Primary
+        primaryTime = primaryTime
     else:
-        return hilbertPeak, peakTime, snrsOut
+        print("Solution choice unknown.  Must choose either direct or reflected/refracted solution.  Exiting.")
+        sys.exit()        
+    envelopePeakPrimary = max(amplitude_envelope_rf_Primary)
+    peakTimePrimary = primaryTime[np.where(amplitude_envelope_rf_Primary == envelopePeakPrimary)]
+    
+    #Calculate Hilbert peak of secondary channel
+    amplitude_envelope_rf_Secondary = getHilbertEnvelopeSingleChannel(secondaryVoltage)
+    
+    if (np.isscalar(tolerance)):
+        minTime = peakTimePrimary-tolerance-timeShift*(1-2*primaryPolarization) 
+        maxTime = peakTimePrimary+tolerance-timeShift*(1-2*primaryPolarization)
+        #The (1-2*primaryPolarization) term is a trick for changing the sign based on the primary polarization.  If Vpol (primaryPolarization = 0), it subtracts the timeshift.  If Hpol (primaryPolarization = 1), it adds the timeshift.
+    else:
+        minTime = peakTimePrimary-tolerance[0]-timeShift*(1-2*primaryPolarization)
+        maxTime = peakTimePrimary+tolerance[1]-timeShift*(1-2*primaryPolarization)
+        
+    
+    print("primaryVoltage = " + str(primaryVoltage))
+    print("amplitude_envelope_rf_Primary = " + str(amplitude_envelope_rf_Primary))
+    print("envelopePeakPrimary = " + str(envelopePeakPrimary))
+    print("secondaryTime = " + str(secondaryTime))
+    print("peakTimePrimary = " + str(peakTimePrimary))    
+    print("tolerance = " + str(tolerance))  
+    print("timeShift = " + str(timeShift))  
+    print("primaryPolarization = " + str(primaryPolarization))  
+    print("minTime = " + str(minTime))
+    print("maxTime = " + str(maxTime))
+    peakWindowSecondary = (secondaryTime>=minTime)*(secondaryTime<=maxTime)
+    amplitude_envelope_rf_Secondary = amplitude_envelope_rf_Secondary[peakWindowSecondary]
+    
+    try:
+        envelopePeakSecondary = max(amplitude_envelope_rf_Secondary)
+        secondaryTime = secondaryTime[peakWindowSecondary]
+        peakTimeSecondary = secondaryTime[np.where(amplitude_envelope_rf_Secondary == envelopePeakSecondary)]
+        if not np.isscalar(peakTimeSecondary):
+            peakTimeSecondary = np.mean(peakTimeSecondary)
+    except ValueError as ve:
+        print("Secondary envelope empty.  Setting envelopePeak to zero.")
+        envelopePeakSecondary=0
+        peakTimeSecondary = 0
+        
+    # print(min(secondaryTime))
+    # print(max(secondaryTime))
+    
+    # secondaryTime = secondaryTime[peakWindowSecondary]
+    # peakTimeSecondary = secondaryTime[np.where(amplitude_envelope_rf_Secondary == envelopePeakSecondary)]
+    
+    # print(envelopePeakPrimary)
+    # print(envelopePeakSecondary)
+    # print(peakTimePrimary)
+    # print(peakTimeSecondary)
+    # print(minTime)
+    # print(maxTime)
+    
+    return envelopePeakPrimary, envelopePeakSecondary, peakTimePrimary, peakTimeSecondary
 
 def extractChannelWaveform(usefulEvent, ch, sampleRate=0.5):
     #Takes ARA useful event, extracts waveform info for the selected channel, and interpolates it to new sample rate (default 0.5 ns).
@@ -1561,7 +1637,7 @@ def plotRawWaveform(usefulEvent, timeMarkers=None, runNumber=None, station = Non
         #         ax[int(ch/4), ch%4].axvline(timeMarkers[ch], color='black', linestyle='--')
     return fig, ax
                 
-def plotDeconvolvedWaveform(usefulEvent, vertexReco, timeMarkers=None, runNumber=None, station = None, Hilbert=False, channelPair=None, deconvolution=True, extraInfo = '', showPeaks = False, tolerance=10, rawEvent=None, noiseEnvelope=None, noiseRms=None, noiseReduction=False):
+def plotDeconvolvedWaveform(usefulEvent, vertexReco, timeMarkers=None, runNumber=None, station = None, Hilbert=False, channelPair=None, deconvolution=True, extraInfo = '', showPeaks = False, tolerance=10, rawEvent=None, noiseEnvelope=None, noiseRms=None, noiseReduction=False, configuration=None):
     import ROOT
     import matplotlib.pyplot as plt
     import numpy
@@ -1570,7 +1646,7 @@ def plotDeconvolvedWaveform(usefulEvent, vertexReco, timeMarkers=None, runNumber
         fig, ax = plt.subplots(nrows=4,ncols=4, figsize=(12,12),sharex=True, sharey=True)
         channels = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
     elif (np.isscalar(channelPair)):
-        fig, ax = plt.subplots(nrows=2,ncols=1, figsize=(12,12),sharex=True, sharey=False)
+        fig, ax = plt.subplots(nrows=2,ncols=1, figsize=(12,12),sharex=True, sharey=True)
         channels = [channelPair, channelPair+8]
     fig.supxlabel("Time [ns]")
     fig.supylabel("Voltage [mV]")
@@ -1607,7 +1683,7 @@ def plotDeconvolvedWaveform(usefulEvent, vertexReco, timeMarkers=None, runNumber
             #Perform deconvolution
             if (deconvolution):
                     #Perform deconvolution
-                    deConv_t,deConv_v = deConvolve_antenna(time, voltage, np.radians(thetaReco[ch]), np.radians(phiReco[ch]), 0)
+                    deConv_t,deConv_v = deConvolve_antenna(time, voltage, np.radians(thetaReco[ch]), np.radians(phiReco[ch]), 0, station=station, channel=ch, configuration=configuration)
             else:
                 deConv_t = time
                 deConv_v = voltage
@@ -1615,7 +1691,7 @@ def plotDeconvolvedWaveform(usefulEvent, vertexReco, timeMarkers=None, runNumber
             #Perform deconvolution
             if (deconvolution):
                     #Perform deconvolution
-                    deConv_t,deConv_v = deConvolve_antenna(time, voltage, np.radians(thetaReco[ch]), np.radians(phiReco[ch]), 1)
+                    deConv_t,deConv_v = deConvolve_antenna(time, voltage, np.radians(thetaReco[ch]), np.radians(phiReco[ch]), 1, station=station, channel=ch, configuration=configuration)
             else:
                 deConv_t = time
                 deConv_v = voltage
