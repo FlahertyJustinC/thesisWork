@@ -42,6 +42,8 @@
 # Author: Justin Flaherty
 # Date: September 6, 2022
 
+print("WHYYYYYYYYYYYYYYYY")
+
 #Import necessary packages
 from ROOT import TCanvas, TGraph
 from ROOT import gROOT
@@ -63,18 +65,30 @@ warnings.filterwarnings("ignore")
 #import argparse
 
 #add headers from AraSim. Not sure if all of them are needed, and I'm lazy to check that. MAK SURE to change the location of the headers
-gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Position.h"')
-gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Report.h"')
-gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Detector.h"')
-gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Settings.h"')
+# gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Position.h"')
+# gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Report.h"')
+# gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Detector.h"')
+# gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Settings.h"')
+
+print('askjdhaskjdhaksjdhaksjdha')
+
+gInterpreter.ProcessLine('#include "/users/PAS0654/jflaherty13/source/AraSim/Position.h"')
+gInterpreter.ProcessLine('#include "/users/PAS0654/jflaherty13/source/AraSim/Report.h"')
+gInterpreter.ProcessLine('#include "/users/PAS0654/jflaherty13/source/AraSim/Detector.h"')
+gInterpreter.ProcessLine('#include "/users/PAS0654/jflaherty13/source/AraSim/Settings.h"')
 gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/libRootFftwWrapper/include/FFTtools.h"')
 
-gSystem.Load('/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/libAra.so') #load the simulation event library. You might get an error asking for the eventSim dictionry. To solve that, go to where you compiled AraSim, find that file, and copy it to where you set LD_LIBRARY_PATH.
+print('qweqweqweqweqwe')
+
+
+# gSystem.Load('/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/libAra.so') #load the simulation event library. You might get an error asking for the eventSim dictionry. To solve that, go to where you compiled AraSim, find that file, and copy it to where you set LD_LIBRARY_PATH.
 gSystem.Load('/cvmfs/ara.opensciencegrid.org/trunk/centos7/ara_build/lib/libAraEvent.so')
 gSystem.Load("/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/libRootFftwWrapper/build/libRootFftwWrapper.so")
 
-#Keith's timing cut
-ROOT.gInterpreter.ProcessLine('#include "./timingCut/example.C"')
+# #Keith's timing cut
+# ROOT.gInterpreter.ProcessLine('#include "./timingCut/example.C"')
+
+print('assssssssssssssssssssssssssssss')
 
 #Read console input
 if len( sys.argv ) > 10:
@@ -108,7 +122,9 @@ else:
 # gainBalance = 0
 # deconvolution = False
 
-tolerance=[20,10]
+# tolerance=[20,10]
+# tolerance=[10,10]
+tolerance=10
 dt=0
 testChannels = [0,2,4]
 
@@ -139,7 +155,7 @@ if (dataTypeFlag == 0):
     totalRecoEvents = vertexReco.GetEntries()
     print('total reco events:', totalRecoEvents)
     
-elif (dataTypeFlag==1):
+elif ((dataTypeFlag==1) or (dataTypeFlag==2)):
     rawInputFile = ROOT.TFile.Open(rawFilename)
     recoInputFile = ROOT.TFile.Open(recoFilename)
     
@@ -150,12 +166,12 @@ elif (dataTypeFlag==1):
     file_list.append(rawFilename)
     
     eventTree = TChain("eventTree") #Define chain and tree that needs to be read. "VTree" in this case.
-    SimTree = TChain("AraTree2")
+    # SimTree = TChain("AraTree2")
     vertexReco = recoInputFile.Get("vertexReco")
 
     for line in file_list:
         eventTree.AddFile(line)
-        SimTree.AddFile(line)
+        # SimTree.AddFile(line)
         
     reportPtr = ROOT.Report()#report pointer
     eventPtr = ROOT.Event()
@@ -164,8 +180,8 @@ elif (dataTypeFlag==1):
     rawEvent = ROOT.RawAtriStationEvent()
     eventTree.SetBranchAddress("UsefulAtriStationEvent",ROOT.AddressOf(usefulEvent))
     eventTree.SetBranchAddress("RawAtriStationEvent",ROOT.AddressOf(rawEvent))
-    SimTree.SetBranchAddress("report",ROOT.AddressOf(reportPtr))
-    SimTree.SetBranchAddress("event", ROOT.AddressOf(eventPtr))
+    # SimTree.SetBranchAddress("report",ROOT.AddressOf(reportPtr))
+    # SimTree.SetBranchAddress("event", ROOT.AddressOf(eventPtr))
 
     totalRawEvents = eventTree.GetEntries()
     print('total raw events:', totalRawEvents) 
@@ -184,8 +200,8 @@ if (noiseTypeFlag == 0):
     powerNoiseConstant = None
 
 elif (noiseTypeFlag == 1):
-    noisePath = "./forcedTriggerNoiseV2/mediansOfForcedTriggerNoise.pkl"
-    print("Using forced trigger noise model.")
+    noisePath = "./noiseFromWaveforms/mediansOfWaveformNoise_run%i.pkl"%(runNumber)
+    print("Using waveform noise model.")
     print("Sourcing noise from " + noisePath)
     name = os.path.join(noisePath)
     data = pd.read_pickle(name)
@@ -227,22 +243,45 @@ if (dataTypeFlag == 0):
             else:
                 rfEventList.append(evt)   
             
-if (dataTypeFlag == 1):
+if (dataTypeFlag == 1):  #Swapping this with condition below because things are breaking.
     #TODO: Make commented code below work with simulated events.
     for evt in range(totalRawEvents):
         # vertexReco.GetEntry(evt)
         eventTree.GetEntry(evt)
         isCalpulser = usefulEvent.isCalpulserEvent()
         isSoftTrigger = usefulEvent.isSoftwareTrigger()
+        print("isSoftTrigger = " +str(isSoftTrigger))
         rfEventList.append(evt) #All AraSim events are softtrigger events, so just populate with all events for now.
-        # #Set soft trigger events
+        # # Set soft trigger events
         # if (isSoftTrigger):
+        #     print("Event " + str(evt) + " is a soft trigger")
         #     softTriggerEventList.append(evt)
         # #Set calpulser events
         # elif (isCalpulser):
+        #     print("Event " + str(evt) + " is a calpulser")
         #     calpulserEventList.append(evt)
         # else:
-        #     rfEventList.append(evt)   
+        #     print("Event " + str(evt) + " is a RF event.")
+        #     rfEventList.append(evt)
+        # if (len(rfEventList) == 0):
+        #     rfEventList = softTriggerEventList
+        
+if (dataTypeFlag == 2):
+    #TODO: Make commented code below work with simulated events.
+    for evt in range(totalRawEvents):
+        # vertexReco.GetEntry(evt)
+        eventTree.GetEntry(evt)
+        isCalpulser = usefulEvent.isCalpulserEvent()
+        isSoftTrigger = usefulEvent.isSoftwareTrigger()
+        # rfEventList.append(evt) #All AraSim events are softtrigger events, so just populate with all events for now.
+        #Set soft trigger events
+        if (isSoftTrigger):
+            softTriggerEventList.append(evt)
+        #Set calpulser events
+        elif (isCalpulser):
+            calpulserEventList.append(evt)
+        else:
+            rfEventList.append(evt)           
         
 #Convert event lists into arrays    
 rfEventList = np.array(rfEventList)
@@ -297,7 +336,9 @@ pulserDepth = np.zeros(numEvents)  #TODO:  Need to include boolean for getting p
 powerOut = np.zeros((numEvents,16))
 powerSoftTriggerHpolOut = np.zeros((numEvents,16))
 powerNoiseFromSoftTriggerOut = np.zeros((numEvents,16))
-snrsOut = np.zeros((numEvents,16))   
+snrsOut = np.zeros((numEvents,16))
+vSnrOut = np.zeros(numEvents)
+hSnrOut = np.zeros(numEvents)
 hilbertPeakOut = np.zeros((numEvents,16))
 hilbertPeakSoftTriggerHpolOut = np.zeros((numEvents,16))
 peakTimeOut = np.zeros((numEvents,16))
@@ -312,19 +353,31 @@ timingDifferenceMeasured = np.zeros((numEvents,3))
 timingDifferenceExpected = np.zeros((numEvents,3))
 runEventNumber = np.empty(numEvents).astype(str)   
 
+#Commenting this out because it's no longer used.
 #Obtain antenna coordinates
 geomTool = ROOT.AraGeomTool.Instance()
-antennaPositions = np.zeros((16,3))
-for ch in range(16):
-    for coord in range(3):
-        antennaPositions[ch, coord] = geomTool.getStationInfo(stationID).getAntennaInfo(ch).antLocation[coord]
+# antennaPositions = np.zeros((16,3))
+# for ch in range(16):
+#     for coord in range(3):
+#         antennaPositions[ch, coord] = geomTool.getStationInfo(stationID).getAntennaInfo(ch).antLocation[coord]
 
 #Calculate noise envelope and RMS
 #TODO: Add boolean flag for getting noise from soft trigers or event waveforms
-# noiseEnvelope, noiseRms = util.findMeanNoise(softTriggerEventList, eventTree, rawEvent, ROOT)
-noiseEnvelope, noiseRms = util.findMeanNoiseFromWaveform(eventList, eventTree, usefulEvent, ROOT)
+noiseEnvelope, noiseRms = util.findMeanNoise(softTriggerEventList, eventTree, rawEvent, ROOT, waveformSampleNs = 50)
 
-if (dataTypeFlag == 0):
+#Hardcoding in noise RMS from distribution of deconvolved pulser waveforms - JCF 7/27/2023
+print("USING HARDCODED NOISE TO CALCULATE DECONVOLVED SNR.  FIX THIS FOR FUTURE")
+noiseRms = np.array([0.097771  , 0.05745579, 0.06394957, 0.08120066, 0.06068223,
+       0.11035589, 0.06460599, 0.07275382, 0.05654482, 0.09287774,
+       0.0919257 , 0.08902603, 0.07838613, 0.12511595, 0.08134452,
+       0.03727756])
+# noiseEnvelope, noiseRms = util.findMeanNoiseFromWaveform(eventList, eventTree, usefulEvent, ROOT)
+
+#Debugging and trying to use the median noise for gainCorrection as the noise envelope. - JCF 6/16/2023
+noiseEnvelope = powerNoiseConstant
+
+if ((dataTypeFlag == 0) or (dataTypeFlag == 1)):
+# if (True):  #Forcing this to be true for the spiceCore reconstruction using my new deconvolution script.
     #Obtain Spicecore Coordinates
     a2EastNorth = np.array([35481,45369])*0.3048 #Convert feet to meters.
     spiceEastNorth = np.array([42359,48974])*0.3048 #Convert feet to meters
@@ -354,9 +407,9 @@ if (dataTypeFlag == 0):
     month = date.month
     day = date.day
 
-    pulserDepthFile = "../spicePulser_"+str(month)+str(day)+"Depth.txt"
+    pulserDepthFile = "spicePulser_"+str(month)+str(day)+"Depth.txt"
     
-    depthFile = pd.read_csv("./"+outputFolder+"/"+pulserDepthFile)
+    depthFile = pd.read_csv(pulserDepthFile)
     print("Sourcing pulser depth from " + "./"+outputFolder+"/"+pulserDepthFile) #Debugging JCF 9/14/2022
     time = pd.to_datetime(depthFile.NZ_Time)
     time.head()
@@ -370,11 +423,12 @@ if (dataTypeFlag == 0):
     unixTimeDepth = (df.index - pd.Timestamp("1970-01-01").tz_localize(utc)) // pd.Timedelta('1s')#This is unix time 
     f = scipy.interpolate.interp1d(unixTimeDepth, depthFile.depth,bounds_error=False, fill_value=0.)
     print("Min Pulser Unix Time = " + str(unixTimeDepth.min()))
-    print("Max Pulser Unix Time = " + str(unixTimeDepth.max()))        
+    print("Max Pulser Unix Time = " + str(unixTimeDepth.max()))
     
     
 for index in range(numEvents):
     evt = eventList[index]
+    print("evt = " + str(evt))
     vertexReco.GetEntry(evt)
     eventTree.GetEntry(evt)
     powerOut[index], snrsOut[index] = util.powerFromWaveformSubtractHilbertNoise(rawEvent, usefulEvent, vertexReco, ROOT, noiseEnvelope, noiseRms, gainBalance = gainBalance, gainCorrection = powerNoiseConstant)
@@ -383,7 +437,6 @@ for index in range(numEvents):
     runNumberOut[index] = runNumber
     # runSubsetNumberOut[index] = subsetNumber
     runEventNumber[index] = str(int(runNumber)) + "_" + str(int(evt_num[index]))
-    
     thetaVertexOut[index] = 90 - vertexReco.bestTheta_out
     phiVertexOut[index] = vertexReco.bestPhi_out % 360
     
@@ -392,8 +445,24 @@ for index in range(numEvents):
     
     timeStamp[index] = usefulEvent.timeStamp
     
-    hilbertPeakOut[index], peakTimeOut[index], dummySnr = util.peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=False, gainCorrection=None, deconvolution=deconvolution, tolerance=tolerance, solution=solution, timeShift=0)
+    hilbertPeakOut[index], peakTimeOut[index], snrsOut[index] = util.peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=gainBalance, gainCorrection=powerNoiseConstant, deconvolution=deconvolution, tolerance=tolerance, solution="single", timeShift=14.1)
     recoROut[index], psiRecoOut[index] = util.calculatePsiAndR(hilbertPeakOut[index]**2)
+    
+    ##Adding line to export snrs from vertexReco
+    # snrsOut[index] = np.array(vertexReco.snrs_out)
+    # vSnrOut[index] = vertexReco.v_snr_out
+    # hSnrOut[index] = vertexReco.h_snr_out
+    
+    ##Try SNR from Hilbert envelope:
+    ##Nope can't do this with the deconvolved files, as the noise is basically zero after deconvolution.  This is giving me infinite SNR.
+    vSnrOut[index] = np.median(snrsOut[index,:8])
+    hSnrOut[index] = np.median(snrsOut[index,8:])
+    
+    pulserDepth[index] = f(usefulEvent.unixTime)
+    unixtime[index] = usefulEvent.unixTime
+    print(f(usefulEvent.unixTime))
+    print(pulserDepth[index])
+    
     
     
 deltaTPeakOut = peakTimeOut[:,8:] - peakTimeOut[:,:8] 
@@ -422,7 +491,7 @@ if (dataTypeFlag == 1):
 #Save data to pandas file
 original_df = pd.DataFrame({"runNumber":runNumberOut, "runSubsetNumber":runSubsetNumberOut, "eventNumber":evt_num.tolist(),   "timeStamp":timeStamp.tolist(), "runEventNumber":runEventNumber.tolist(),
                             "thetaReco":thetaRecoOut.tolist(), "phiReco":phiRecoOut.tolist(), "thetaVertex":thetaVertexOut.tolist(), "phiVertex":phiVertexOut.tolist(), 
-                            "SNR":snrsOut.tolist(), "vSNR":snrsOut[:,:8].mean(axis=1).tolist(), "hSNR":snrsOut[:,8:].mean(axis=1).tolist(), "whichSol":whichSol.tolist(), "unixtime":unixtime.tolist(), 
+                            "SNR":snrsOut.tolist(), "vSNR":vSnrOut.tolist(), "hSNR":hSnrOut.tolist(), "whichSol":whichSol.tolist(), "unixtime":unixtime.tolist(), 
                             "power":powerOut.tolist(), "recoR":recoROut.tolist(), "psiReco":psiRecoOut.tolist(),
                             "powerNoiseFromSoftTrigger":powerNoiseFromSoftTriggerOut.tolist(), "pulserDepth":pulserDepth.tolist(),
                            "hilbertPeaks":hilbertPeakOut.tolist(), "peakTimes":peakTimeOut.tolist(), "deltaTPeaks":deltaTPeakOut.tolist(), "hilbertPeaksSoftTriggerHpol":hilbertPeakSoftTriggerHpolOut.tolist(),
@@ -451,8 +520,13 @@ if not isExist:
   # Create a new directory because it does not exist 
   os.makedirs(outputFolder)
 
-# outfilePath = outputFolder + "/polReco_run%i_%i.pkl"%(runNumber,subsetNumber)    
-outfilePath = outputFolder + "/polReco_run%i.pkl"%(runNumber)  
+# Commenting this out on 20231011 because I need to save the subset info for spiceCore results.
+# if (dataTypeFlag == 2):
+#     outfilePath = outputFolder + "/polReco_run%i_%i.pkl"%(runNumber,subsetNumber)
+# else:
+#     outfilePath = outputFolder + "/polReco_run%i.pkl"%(runNumber)  
+
+outfilePath = outputFolder + "/polReco_run%i_%i.pkl"%(runNumber,subsetNumber)
 
 original_df.to_pickle(outfilePath)
 print("Output saved to " + outfilePath)
