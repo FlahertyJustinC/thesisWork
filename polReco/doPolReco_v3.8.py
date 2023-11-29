@@ -1,48 +1,36 @@
-# #####doPolReco_v3.py#####
+# #####doPolReco.py#####
 
-# This is an updated version of my doPolReco_<type>.py script that consolodates
-# the reconstruction for real data (RF, soft trigger, and calpulser) as well as
-# Monte Carlo data into a single script, so that any changes I make here will affect all 
-# types equally.  I may try to add depth data for the SpiceCore events if that isn't too difficult.
-# This script also generates the dataset where the HPol signal of RF events is replaced by soft-trigger
-# events.  This is an upgrade to the previous method, which required the running of multiple scripts.
+# This script is part of a series of steps in my polarization reconstruction of ARA signals. The steps are:
+#     1. Vertex reconstruction via interferometry/calculatearrivaldir_interf.cpp
+#     2. Deconvolution of signal via deconvolvution/deconvolveWaveform.cpp
+#     3. Reconstruction of polarization direction via polReco/doPolReco.py
+#     4. Plotting of reconstruction resolution via polReco/plotRecoAngles.ipynb
+    
+# Script is still under construction, with a planned outline below:
+    
+# Doing an overhaul of my polReco code now that deconvolution is separate.  Here's a list of things I need when running it, so I can set up proper keyword arguments:  
 
-# Version 3:  Calculates noise by averaging the Hilbet envelopes of soft trigger events within a data subset.
+# - station number (for looking up geometry? It should just be able ot grab it from the input file)
+# - dataType (whether it's real or simulated data. Maybe I can have that encoded in the deconvolution file? Like if it has a AraTree?  Yeah I should do that, as raw data will have that feature so I can just check for the AraTree.)
+# - run number (I should fold in the subset number for when I split data, maybe just in the filepath)
+# - filepath to raw or deconvolved data
+# - filepath to vertex reco data
+# - filepath for output
+# - keyword argument for choosing channels?  Allows for doing reco on just top or bottom antennas.
+# - keyword argument for deltaT tolerance between H and V peaks?  Currently defaults to 10 ns.  I'll need to use this for keyword arguments:  https://docs.python.org/dev/library/argparse.html
 
-# Version 3.1: Also calculates noise from soft trigger hilbert envelopes for generating distributions for gain balancing.
+# Things I should definitely remove from my polReco script:
 
-# Version 3.2:  Now adds ability to find Hilbert Peaks with and without deconvolution.  This is mainly for the Soft-Trigger/RF HPol swap.
+# - Deconvolution using pyrex
+# - noise subtraction in time-domain (doing frequency domain in the deconvolution now)
+# - gain balancing (handled by deconvolution now).
 
-# Version 3.3: Runs analysis over multiple runs, and calculates pulser depth and stores in the polReco file.  We previously calculated pulser depth in our plotting script, but it seems more prudent to do it here.
-
-# Version 3.4:  Added support for other staions.
-
-# Version 3.5: Implements Keith Madison's timing cut, which performs ray tracing to calculate the expected different in arrival times between antennas, and then compares to the measured differences in arrival times.
-
-# Version 3.6:  Handling the reconstruction of soft-trigger and calpulsers in a more organized and elegant manner.
-
-# Version 3.7:  Adding support for AraSim outputs.
-
-# Version 3.8:  Adding support for AraSim outputs, but in a more elegant way that agrees with real data outputs.  **In progress 4/8/2023**
-
-# This is built to run on interferometric output that has been split into smaller subsets of data.  
-
-# Ex:
-
-# event012559.root -> event012559__0.root, event012559__1.root, ...
-
-# recoangle_reco_out_run12559.root -> recoangle_reco_out_run12559_0.root, recoangle_reco_out_run12559_1.root, ...
-
-# Usage:
-
-# Ideally it would be done via job submission
-
-# > python doPolReco_v2.py <runNumber> <subsetNumber> <source folder> <real or MC flag> <RF, soft-trigger, or calpulser flag> <noise type flag>
+# Things I should add:
+# - Coherent summing of waveforms. 
+# - Should save the input parameters, like tolerance, to the output file for easy reference. Kinda like how AraSim outputs save the values of the setup file.
 
 # Author: Justin Flaherty
-# Date: September 6, 2022
-
-print("WHYYYYYYYYYYYYYYYY")
+# Date: November 26, 2023
 
 #Import necessary packages
 from ROOT import TCanvas, TGraph
@@ -62,15 +50,6 @@ import warnings
 import itertools
 from datetime import datetime
 warnings.filterwarnings("ignore")
-#import argparse
-
-#add headers from AraSim. Not sure if all of them are needed, and I'm lazy to check that. MAK SURE to change the location of the headers
-# gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Position.h"')
-# gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Report.h"')
-# gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Detector.h"')
-# gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Settings.h"')
-
-print('askjdhaskjdhaksjdhaksjdha')
 
 gInterpreter.ProcessLine('#include "/users/PAS0654/jflaherty13/source/AraSim/Position.h"')
 gInterpreter.ProcessLine('#include "/users/PAS0654/jflaherty13/source/AraSim/Report.h"')
@@ -78,17 +57,8 @@ gInterpreter.ProcessLine('#include "/users/PAS0654/jflaherty13/source/AraSim/Det
 gInterpreter.ProcessLine('#include "/users/PAS0654/jflaherty13/source/AraSim/Settings.h"')
 gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/libRootFftwWrapper/include/FFTtools.h"')
 
-print('qweqweqweqweqwe')
-
-
-# gSystem.Load('/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/libAra.so') #load the simulation event library. You might get an error asking for the eventSim dictionry. To solve that, go to where you compiled AraSim, find that file, and copy it to where you set LD_LIBRARY_PATH.
 gSystem.Load('/cvmfs/ara.opensciencegrid.org/trunk/centos7/ara_build/lib/libAraEvent.so')
 gSystem.Load("/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/libRootFftwWrapper/build/libRootFftwWrapper.so")
-
-# #Keith's timing cut
-# ROOT.gInterpreter.ProcessLine('#include "./timingCut/example.C"')
-
-print('assssssssssssssssssssssssssssss')
 
 #Read console input
 if len( sys.argv ) > 10:
@@ -109,21 +79,6 @@ else:
     print("ERROR:  Missing necessary flags. \nRun as:  python doPolReco_interf.py <run-number> <subset-number> <reco source folder> <raw source folder> <real or MC flag> <RF, soft-trigger, or calpulser flag> <noise type flag> <gainBalance flag> <deconvolution flag>")
     sys.exit()
 
-# stationID = 2 #2
-# runNumber = 0 #12557
-# subsetNumber = '' #102
-# recoSrcFolder = "/users/PAS0654/jflaherty13/araAnalysis/araRecoAndSourceSearch/ARA_Reconstruction/brianInterferometry/spicecoreInterfAllRuns/A"+str(stationID)+"/debuggingPeakFinder/run_0"+str(runNumber)+"/"
-# recoSrcFolder = "/users/PAS0654/jflaherty13/araAnalysis/araRecoAndSourceSearch/ARA_Reconstruction/brianInterferometry/test/"
-# rawSrcFolder = "/users/PAS0654/jflaherty13/source/AraSim/outputs/AraOut_psi=0.root"
-# outputFolder = "newPolRecoV38/A"+str(stationID)+"/"
-# dataTypeFlag = 1
-# signalTypeFlag = 0
-# noiseTypeFlag = 0
-# gainBalance = 0
-# deconvolution = False
-
-# tolerance=[20,10]
-# tolerance=[10,10]
 tolerance=10
 dt=0
 testChannels = [0,2,4]
@@ -131,10 +86,6 @@ testChannels = [0,2,4]
 print("runNumber = " + str(runNumber))
 print("Sourcing vertex reconstruction from " + str(recoSrcFolder))
 print("Sourcing raw data from " + str(rawSrcFolder))
-    
-#Reduced event file
-# rawFilename = rawSrcFolder + "/event0"+str(runNumber)+"__"+str(subsetNumber)+".root"
-# recoFilename = recoSrcFolder + "/recangle_reco_out_run_"+str(runNumber)+"_"+str(subsetNumber)+".root"
 
 rawFilename = rawSrcFolder
 recoFilename = recoSrcFolder
@@ -392,38 +343,41 @@ if ((dataTypeFlag == 0) or (dataTypeFlag == 1)):
     evt = eventList[0]
     vertexReco.GetEntry(evt)
     eventTree.GetEntry(evt)
-    unixtimeTemp = usefulEvent.unixTime
-    date = datetime.utcfromtimestamp(unixtimeTemp)
-    #Convert date object from UTC to NZ local time
-    import pytz
-    from datetime import datetime, timezone
-    nz = pytz.timezone('NZ')
-    utc = pytz.timezone('UTC')
-    def utc_to_local(utc_dt):
-        return utc_dt.replace(tzinfo=timezone.utc).astimezone(tz=nz)
+    try:
+        unixtimeTemp = usefulEvent.unixTime
+        date = datetime.utcfromtimestamp(unixtimeTemp)
+        #Convert date object from UTC to NZ local time
+        import pytz
+        from datetime import datetime, timezone
+        nz = pytz.timezone('NZ')
+        utc = pytz.timezone('UTC')
+        def utc_to_local(utc_dt):
+            return utc_dt.replace(tzinfo=timezone.utc).astimezone(tz=nz)
 
-    date = utc_to_local(date)
-    year = date.year
-    month = date.month
-    day = date.day
+        date = utc_to_local(date)
+        year = date.year
+        month = date.month
+        day = date.day
 
-    pulserDepthFile = "spicePulser_"+str(month)+str(day)+"Depth.txt"
-    
-    depthFile = pd.read_csv(pulserDepthFile)
-    print("Sourcing pulser depth from " + "./"+outputFolder+"/"+pulserDepthFile) #Debugging JCF 9/14/2022
-    time = pd.to_datetime(depthFile.NZ_Time)
-    time.head()
-    newTime = time.apply(lambda dt: dt.replace(day=day, month = month, year = year))
-    # newTime#Still in NZ local time. Need to translate to UTC
-    df = pd.DataFrame(1, index=newTime, columns=['X'])
-    import pytz
-    nz = pytz.timezone('NZ')
-    utc = pytz.timezone('UTC')
-    df.index = df.index.tz_localize(nz).tz_convert(utc)
-    unixTimeDepth = (df.index - pd.Timestamp("1970-01-01").tz_localize(utc)) // pd.Timedelta('1s')#This is unix time 
-    f = scipy.interpolate.interp1d(unixTimeDepth, depthFile.depth,bounds_error=False, fill_value=0.)
-    print("Min Pulser Unix Time = " + str(unixTimeDepth.min()))
-    print("Max Pulser Unix Time = " + str(unixTimeDepth.max()))
+        pulserDepthFile = "spicePulser_"+str(month)+str(day)+"Depth.txt"
+
+        depthFile = pd.read_csv(pulserDepthFile)
+        print("Sourcing pulser depth from " + "./"+outputFolder+"/"+pulserDepthFile) #Debugging JCF 9/14/2022
+        time = pd.to_datetime(depthFile.NZ_Time)
+        time.head()
+        newTime = time.apply(lambda dt: dt.replace(day=day, month = month, year = year))
+        # newTime#Still in NZ local time. Need to translate to UTC
+        df = pd.DataFrame(1, index=newTime, columns=['X'])
+        import pytz
+        nz = pytz.timezone('NZ')
+        utc = pytz.timezone('UTC')
+        df.index = df.index.tz_localize(nz).tz_convert(utc)
+        unixTimeDepth = (df.index - pd.Timestamp("1970-01-01").tz_localize(utc)) // pd.Timedelta('1s')#This is unix time 
+        f = scipy.interpolate.interp1d(unixTimeDepth, depthFile.depth,bounds_error=False, fill_value=0.)
+        print("Min Pulser Unix Time = " + str(unixTimeDepth.min()))
+        print("Max Pulser Unix Time = " + str(unixTimeDepth.max()))
+    except OverflowError:
+        print("Unix time of event undefined.  Bypassing pulser depth calculation.")
     
     
 for index in range(numEvents):
@@ -458,9 +412,13 @@ for index in range(numEvents):
     vSnrOut[index] = np.median(snrsOut[index,:8])
     hSnrOut[index] = np.median(snrsOut[index,8:])
     
-    pulserDepth[index] = f(usefulEvent.unixTime)
+    try:
+        pulserDepth[index] = f(usefulEvent.unixTime)
+    except NameError:
+        print("Pulser depth calculation bypassed.  Setting run number to pulser depth.")
+        pulserDepth[index] = runNumber
     unixtime[index] = usefulEvent.unixTime
-    print(f(usefulEvent.unixTime))
+    # print(f(usefulEvent.unixTime))
     print(pulserDepth[index])
     
     
@@ -499,22 +457,22 @@ original_df = pd.DataFrame({"runNumber":runNumberOut, "runSubsetNumber":runSubse
  
 
 #Create output directory if it doesn't already exist
-outputFolder += "/run_0"+str(runNumber)+"/"
+# outputFolder += "/run_0"+str(runNumber)+"/
 
-if (signalTypeFlag == 0):
-    outputFolder += "/rfEvents/"
-elif (signalTypeFlag == 1):
-    outputFolder += "/softTriggerEvents/"
-elif (signalTypeFlag == 2):
-    outputFolder += "/calpulserEvents/"
+# if (signalTypeFlag == 0):
+#     outputFolder += "/rfEvents/"
+# elif (signalTypeFlag == 1):
+#     outputFolder += "/softTriggerEvents/"
+# elif (signalTypeFlag == 2):
+#     outputFolder += "/calpulserEvents/"
     
-if (deconvolution):
-    outputFolder += "/deconvolution/"
-else:
-    outputFolder += "/noDeconvolution/"
+# if (deconvolution):
+#     outputFolder += "/deconvolution/"
+# else:
+#     outputFolder += "/noDeconvolution/"
     
-if gainBalance:
-    outputFolder += "/gainCorrected/"
+# if gainBalance:
+#     outputFolder += "/gainCorrected/"
 isExist = os.path.exists(outputFolder)
 if not isExist:
   # Create a new directory because it does not exist 
@@ -526,7 +484,9 @@ if not isExist:
 # else:
 #     outfilePath = outputFolder + "/polReco_run%i.pkl"%(runNumber)  
 
-outfilePath = outputFolder + "/polReco_run%i_%i.pkl"%(runNumber,subsetNumber)
+# outfilePath = outputFolder + "/polReco_run%i_%i.pkl"%(runNumber,subsetNumber)
+
+outfilePath = outputFolder + "/polReco_run%i.pkl"%(runNumber)  
 
 original_df.to_pickle(outfilePath)
 print("Output saved to " + outfilePath)
