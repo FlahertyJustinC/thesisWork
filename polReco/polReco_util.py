@@ -88,8 +88,6 @@ def doReco(antenna_waveforms, plot_map=False, pol = 0):
     inter_vtx = np.array((grid_points[0][i],
                           grid_points[1][j],
                           grid_points[2][k]))
-    # print(inter_data[1][0])
-    # print(inter_vtx, inter_max)
     # plot_map = False
     if(plot_map):
         max_idx = np.unravel_index(np.argmax(inter_data), inter_data.shape)
@@ -1385,8 +1383,6 @@ def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=Fa
     for channelPair in range(8):
         voltageVpol, timeVpol = extractChannelWaveform(usefulEvent, channelPair)
         voltageHpol, timeHpol = extractChannelWaveform(usefulEvent, channelPair+8)
-        print("voltageVpol = " +str(voltageVpol))
-        print("voltageHpol = " +str(voltageHpol))
         
         #Debugging and apply gain balance before deconvolution - JCF 6/16/2023
         if (gainBalance):
@@ -1428,12 +1424,7 @@ def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=Fa
         #Find which channel is stronger.
         peakVpol = max(envelopeAfterSubtractionVpol)
         peakHpol = max(envelopeAfterSubtractionHpol)
-        
-        print(peakVpol)
-        print(peakHpol)
-        
-        print(deConv_v_Vpol)
-        print(deConv_v_Hpol)        
+              
         
         if (peakVpol > peakHpol):
             primaryVoltage = deConv_v_Vpol
@@ -1500,17 +1491,6 @@ def findHilbertForLargerChannel(primaryVoltage, secondaryVoltage, primaryTime, s
         minTime = peakTimePrimary-tolerance[0]-timeShift*(1-2*primaryPolarization)
         maxTime = peakTimePrimary+tolerance[1]-timeShift*(1-2*primaryPolarization)
         
-    
-    print("primaryVoltage = " + str(primaryVoltage))
-    print("amplitude_envelope_rf_Primary = " + str(amplitude_envelope_rf_Primary))
-    print("envelopePeakPrimary = " + str(envelopePeakPrimary))
-    print("secondaryTime = " + str(secondaryTime))
-    print("peakTimePrimary = " + str(peakTimePrimary))    
-    print("tolerance = " + str(tolerance))  
-    print("timeShift = " + str(timeShift))  
-    print("primaryPolarization = " + str(primaryPolarization))  
-    print("minTime = " + str(minTime))
-    print("maxTime = " + str(maxTime))
     peakWindowSecondary = (secondaryTime>=minTime)*(secondaryTime<=maxTime)
     amplitude_envelope_rf_Secondary = amplitude_envelope_rf_Secondary[peakWindowSecondary]
     
@@ -1524,27 +1504,18 @@ def findHilbertForLargerChannel(primaryVoltage, secondaryVoltage, primaryTime, s
         print("Secondary envelope empty.  Setting envelopePeak to zero.")
         envelopePeakSecondary=0
         peakTimeSecondary = 0
-        
-    # print(min(secondaryTime))
-    # print(max(secondaryTime))
-    
-    # secondaryTime = secondaryTime[peakWindowSecondary]
-    # peakTimeSecondary = secondaryTime[np.where(amplitude_envelope_rf_Secondary == envelopePeakSecondary)]
-    
-    # print(envelopePeakPrimary)
-    # print(envelopePeakSecondary)
-    # print(peakTimePrimary)
-    # print(peakTimeSecondary)
-    # print(minTime)
-    # print(maxTime)
     
     return envelopePeakPrimary, envelopePeakSecondary, peakTimePrimary, peakTimeSecondary
 
-def extractChannelWaveform(usefulEvent, ch, sampleRate=0.5):
+def extractChannelWaveform(usefulEvent, ch, sampleRate=0.5, FFT=False):
     #Takes ARA useful event, extracts waveform info for the selected channel, and interpolates it to new sample rate (default 0.5 ns).
     import ROOT
     from ROOT import gInterpreter, gSystem
-    from ROOT import TChain, TSelector, TTree
+    from ROOT import TChain, TSelector, TTree 
+    # if (FFT):
+    #     gr = usefulEvent.getFFTForRFChan(ch)
+    # else:
+    #     gr = usefulEvent.getGraphFromRFChan(ch)
     gr = usefulEvent.getGraphFromRFChan(ch)
     gr = ROOT.FFTtools.getInterpolatedGraph(gr,sampleRate)
     lenGraph = gr.GetN()    
@@ -1746,4 +1717,39 @@ def plotDeconvolvedWaveform(usefulEvent, vertexReco, timeMarkers=None, runNumber
         # elif (len(timeMarkers)==16):
         #     for ch in range(16):
         #         ax[int(ch/4), ch%4].axvline(timeMarkers[ch], color='black', linestyle='--')
+    return fig, ax
+
+
+
+def plotWaveform(usefulEvent, FFT=False, channelPair=None, sharex=True, sharey=True):
+    import ROOT
+    import matplotlib.pyplot as plt
+    import numpy
+    # from scipy.signal import hilbert
+    if (channelPair is None):
+        fig, ax = plt.subplots(nrows=4,ncols=4, figsize=(12,12),sharex=sharex, sharey=sharey)
+        channels = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    elif (np.isscalar(channelPair)):
+        fig, ax = plt.subplots(nrows=2,ncols=1, figsize=(12,12),sharex=sharex, sharey=sharey)
+        channels = [channelPair, channelPair+8]
+    if (FFT):
+        fig.supxlabel("Frequency [MHz]")
+        fig.supylabel("Spectral Density [mV $^2$ / MHz]")
+    else:
+        fig.supxlabel("Time [ns]")
+        fig.supylabel("Voltage [mV]")
+    eventNumber = usefulEvent.eventNumber
+    
+    for ch, axes in zip(channels, ax.flatten()):
+        voltage, time = extractChannelWaveform(usefulEvent, ch)
+        if (FFT):
+            fft, freq, dT = doFFT(time, voltage)
+            psd = np.abs(fft**2)
+            voltage, time = psd, freq
+            
+        axes.set_title("Channel " + str(ch))
+        axes.plot(time,voltage, alpha=0.7, label='Waveform') 
+        
+    plt.suptitle("Event Number: " +str(eventNumber))
+   
     return fig, ax

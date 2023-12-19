@@ -1,5 +1,5 @@
 """
-#####doPolReco.py#####
+##### doPolReco.py #####
 
 This script is part of a series of steps in my polarization reconstruction of ARA signals. The steps are:
     1. Vertex reconstruction via interferometry/calculatearrivaldir_interf.cpp
