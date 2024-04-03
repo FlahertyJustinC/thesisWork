@@ -213,22 +213,21 @@ int main(int argc, char **argv)
     settings->RAY_TRACE_ICE_MODEL_PARAMS = 0; // set the ice model as user requested
     
     for(Long64_t event=0;event<numEntries;event++) {
-
         fp->cd();
         eventTree->GetEntry(event);
         simTree->GetEntry(event);
 
         std::cout<<"Looking at event number "<<event<<std::endl;
         
-//         // Debugging - JCF 6/7/2023
-//         if (event!=0){
-//             continue;
-//         }
+        // Debugging - JCF 6/7/2023
+        // if (event!=0){
+        //     continue;
+        // }
         
-//         // if (rawAtriEvPtr->eventNumber != 0){
-//         //     continue;
-//         // }
-//         // End debugging - JCF 6/7/2023
+        // if (rawAtriEvPtr->eventNumber != 0){
+        //     continue;
+        // }
+        // End debugging - JCF 6/7/2023
 
         std::vector<double> event_position;
         event_position.push_back(eventPtr->Nu_Interaction[0].posnu.GetX());
@@ -262,12 +261,13 @@ int main(int argc, char **argv)
         //Adding noise calculation on a per channel basis rather than hard-coding a noise value - JCF 7/24/2023
         // double noise = 46.; // the noise is basically 45 mV (independent of channel) in MC
         double noise; // Initializing noise for calculation from waveform below:
+        // double noise = 0.; // Debugging and testing for noiseless waveforms. - JCF 6/25/2023
         std::map<int, double> snrs; // map of channels to SNRs
         for(int i=0; i<16; i++){
             //Calculate noise from rms of first 50 ns of waveform
             double voltageSubset[100];
             for(int j=0; j<100; j++){
-                voltageSubset[j] = interpolatedWaveforms[j]->GetY();
+                voltageSubset[j] = (interpolatedWaveforms[i]->GetY())[j];
             }
             noise = TMath::RMS(100,voltageSubset);
             
@@ -339,8 +339,8 @@ int main(int argc, char **argv)
             maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_V, corrFunctions_V, 1, weights_V)); // reflected solution
             maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, 0, weights_H)); // direct solution
             maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, 1, weights_H)); // reflected solution
-
-            // // Debugging - JCF 6/7/2023
+            
+            // Debugging - JCF 6/7/2023
             // TCanvas *c = new TCanvas("","", 1200, 950);            
             // maps[0]->Draw("colz");
             // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
@@ -359,8 +359,8 @@ int main(int argc, char **argv)
             // sprintf(title,"debuggingPlots/maps_ev%d_rad%.2f.png", event, radii[r]);
             // c->SaveAs(title);
             // delete c;
-            // // End debugging
-            
+            // End debugging
+
             std::vector<double> bestOne;
             for(int i=0; i<4; i++){
                 double peakCorr, peakTheta, peakPhi;
@@ -429,7 +429,8 @@ int main(int argc, char **argv)
         //     temp_binTheta, temp_binPhi
         // );
 
-        int likely_sol = guess_triggering_solution(eventPtr, reportPtr);
+        // int likely_sol = guess_triggering_solution(eventPtr, reportPtr);
+        int likely_sol = 0; //Forcing direct solutions only for debugging - JCF 7/5/2023
         std::map<int, double> thetas_truth = get_value_from_mc_truth("theta", likely_sol, reportPtr);
         std::map<int, double> phis_truth = get_value_from_mc_truth("phi", likely_sol, reportPtr);
         // for(int i=0; i<16; i++){

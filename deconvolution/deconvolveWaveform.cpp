@@ -7,35 +7,36 @@
 
 // AraSim includes
 //vector and position must be first
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Vector.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Position.h"
+#include "Vector.h"
+#include "Position.h"
 
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Constants.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/counting.hh"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Detector.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/EarthModel.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Efficiencies.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Event.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/IceModel.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Primaries.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Ray.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Report.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/RaySolver.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/secondaries.hh"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Settings.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/signal.hh"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Spectra.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Tools.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Trigger.h"
+#include "AraGeomTool.h"
+#include "Constants.h"
+#include "counting.hh"
+#include "Detector.h"
+#include "EarthModel.h"
+#include "Efficiencies.h"
+#include "Event.h"
+#include "IceModel.h"
+#include "Primaries.h"
+#include "Ray.h"
+#include "Report.h"
+#include "RaySolver.h"
+#include "secondaries.hh"
+#include "Settings.h"
+#include "signal.hh"
+#include "Spectra.h"
+#include "Tools.h"
+#include "Trigger.h"
 
 using namespace std;
 
-#ifdef ARA_UTIL_EXISTS
-    #include "UsefulIcrrStationEvent.h"
-    ClassImp(UsefulIcrrStationEvent);
-    #include "UsefulAtriStationEvent.h"
-    ClassImp(UsefulAtriStationEvent);
-#endif
+// #ifdef ARA_UTIL_EXISTS
+#include "UsefulIcrrStationEvent.h"
+ClassImp(UsefulIcrrStationEvent);
+#include "UsefulAtriStationEvent.h"
+ClassImp(UsefulAtriStationEvent);
+// #endif
 
 // #include "/users/PAS0654/jflaherty13/source/AraRoot/AraRoot_build/include/AraGeomTool.h"
 // #include "/users/PAS0654/jflaherty13/source/AraRoot/AraRoot_build/include/RayTraceCorrelator.h"
@@ -114,14 +115,17 @@ int main(int argc, char **argv)
     printf("------------------\n");
     
     string setupfile;
-    setupfile = "SETUP/setup_variablePsi.txt";
+    setupfile = argv[7];
     Settings *settings1 = new Settings();
     settings1->ReadFile(setupfile); 
     IceModel *icemodel=new IceModel(settings1->ICE_MODEL + settings1->NOFZ*10,settings1->CONSTANTICETHICKNESS * 1000 + settings1->CONSTANTCRUST * 100 + settings1->FIXEDELEVATION * 10 + 0,settings1->MOOREBAY);// creates Antarctica ice model
     Detector *detector = new Detector(settings1, icemodel, setupfile);  
     Report *report = new Report(detector, settings1);
     
-    settings1->NFOUR = 4096;
+    // settings1->NFOUR = 2048;
+    
+    cout << "settings1->NFOUR = " << settings1->NFOUR << endl;
+    
     
     cout << "Settings->TIMESTEP = " << settings1->TIMESTEP << endl;
     
@@ -156,7 +160,9 @@ int main(int argc, char **argv)
         if (dataLike) {
             cout << "Triggering datalike condition." << endl;
             delete usefulAtriEvPtr;         
-            usefulAtriEvPtr = new UsefulAtriStationEvent(rawAtriEvPtr, AraCalType::kLatestCalib);               
+            usefulAtriEvPtr = new UsefulAtriStationEvent(rawAtriEvPtr, AraCalType::kLatestCalib);
+            
+            
         }
 
         int vertexRecoElectToRFChan[] = {14,2,6,10,12,0,4,8,15,3,7,11,13,1,5,9};
@@ -198,9 +204,11 @@ int main(int argc, char **argv)
             delete gr;
             
             // for (int m = 0; m < settings1->NFOUR / 2; m++)
-            for (int m = 0; m < 2048; m++)
+            // for (int m = 0; m < 2048; m++)
+            for (int m = 0; m < settings1->NFOUR; m++)
             {
-                T_forint[m] = -512 + m*0.5;   // in ns
+                // T_forint[m] = -512 + m*0.5;   // in ns
+                T_forint[m] = time[0] + m*0.5;   // in ns
             }
             
             //Importing the cutoff time between spicecore peaks
@@ -340,12 +348,12 @@ int main(int argc, char **argv)
                     V_forfft[2*n+1] = 0;
                 }                   
                 //Apply homemade butterworth filter of the fourth order
-                // double freqMin = 150*1e6;
-                // double freqMax = 300*1e6;
+                double freqMin = 150*1e6;
+                double freqMax = 300*1e6;
                 
                 //Trying user inputted butterworth filter
-                double freqMin = atof(argv[7])*1e6;
-                double freqMax = atof(argv[8])*1e6;
+                // double freqMin = atof(argv[7])*1e6;
+                // double freqMax = atof(argv[8])*1e6;
   
                 
                 double weight = 1;  // Setting initial weight to one, then applying bandpass.  Weight is then multiplied by signal in this bin.
