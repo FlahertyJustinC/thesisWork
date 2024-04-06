@@ -10,24 +10,19 @@
 #include "TLine.h"
 
 // ARA Includes
-#include "/users/PAS0654/jflaherty13/source/AraRoot/AraRoot_build/include/AraGeomTool.h"
-#include "/users/PAS0654/jflaherty13/source/AraRoot/AraRoot_build/include/RayTraceCorrelator.h"
-#include "/users/PAS0654/jflaherty13/source/AraRoot/AraRoot_build/include/UsefulAtriStationEvent.h"
+#include "AraGeomTool.h"
+#include "RayTraceCorrelator.h"
+#include "UsefulAtriStationEvent.h"
 #include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/libRootFftwWrapper/include/FFTtools.h"
+
 UsefulAtriStationEvent *usefulAtriEvPtr;
 
 // AraSim includes
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Detector.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Event.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/Position.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/RaySolver.h"
-#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/AraSim/IceModel.h"
-
-// #include "/users/PAS0654/jflaherty13/source/AraSim/Detector.h"
-// #include "/users/PAS0654/jflaherty13/source/AraSim/Event.h"
-// #include "/users/PAS0654/jflaherty13/source/AraSim/Position.h"
-// #include "/users/PAS0654/jflaherty13/source/AraSim/RaySolver.h"
-// #include "/users/PAS0654/jflaherty13/source/AraSim/IceModel.h"
+#include "Detector.h"
+#include "Event.h"
+#include "Position.h"
+#include "RaySolver.h"
+#include "IceModel.h"
 
 #include "helper.h"
 

@@ -2,9 +2,7 @@ std::vector<double> get_detector_cog(Detector *detectorPtr){
     std::vector<double> average_position{0., 0., 0.};
     int n_ant = 0;
     for(int s=0; s<4; s++){
-        cout << s << endl;
         for(int a=0; a<4; a++){
-            cout << a << endl;
             n_ant++;
             average_position[0]+=detectorPtr->stations[0].strings[s].antennas[a].GetX();
             average_position[1]+=detectorPtr->stations[0].strings[s].antennas[a].GetY();
