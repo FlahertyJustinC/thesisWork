@@ -1,3 +1,21 @@
+/*
+deconvolveWaveform.cpp
+Justin Flaherty
+4/6/2024
+
+A simple deconvoultion script that inverts the antenna and electronics response applied in AraSim to convert a waveform in voltage into the electric field.
+
+Requirements:
+An installation of AraRoot and AraSim
+Symlinking of the AraSim/data directory into the directory of this script.  Whereever you have this script hosted, do the following:
+
+ln -s /path/to/AraSim/data .
+
+
+*/
+
+
+
 #include "/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/libRootFftwWrapper/include/FFTtools.h"
 
 // ROOT includes
@@ -48,18 +66,30 @@ UsefulAtriStationEvent *usefulAtriEvPtrOut;
 
 int main(int argc, char **argv)
 {
-    if(argc<6) {
-        std::cout << "Usage\n" << argv[0] << " <station> <config> <runnum> <input root file> <input reco file> <output_dir> \n";
-        std::cout << "e.g.\n" << argv[0] << " 2 6 AraOut.root recangle_out_run<runnum>.root output/\n";
+    // if(argc<7) {
+    if(argc<8) {
+        // std::cout << "Usage\n" << argv[0] << " <station> <config> <runnum> <input root file> <input reco file> <output_dir> <setup_file>\n";
+        // std::cout << "e.g.\n" << argv[0] << " 2 6 AraOut.root recangle_out_run<runnum>.root output setup.txt /\n";
+        std::cout << "Usage\n" << argv[0] << " <runnum> <band-pass minimum frequency (MHz)> <band-pass maximum frequency (MHz)> <setup file> <input root file> <input reco file> <output directory>\n";
+        std::cout << "e.g.\n" << argv[0] << " 1000 150 300 setup.txt AraOut.root recangle_out_run1000.root output/\n";        
         return 0;
     }
+    
+    //Import argument parameters
+    char* runNumber = argv[1];
+    double freqMin = atof(argv[2])*1e6;
+    double freqMax = atof(argv[3])*1e6;
+    char* setupfile = argv[4];
+    char* araFile = argv[5];
+    char* recoFile = argv[6];
+    char* outputDir = argv[7];
     
     double interpV = 0.4;
     double interpH = 0.625;
     
     //Import AraRoot file
     printf("Opening root file...\n");
-    TFile *fp = TFile::Open(argv[4]);
+    TFile *fp = TFile::Open(araFile);
     if(!fp) { std::cerr << "Can't open file\n"; return -1; }
     printf("Root File opened!\n");
     
@@ -92,7 +122,7 @@ int main(int argc, char **argv)
         
     //Import vertex reco file
     printf("Opening reco file...\n");
-    TFile *fp2 = TFile::Open(argv[5]);
+    TFile *fp2 = TFile::Open(recoFile);
     if(!fp2) { std::cerr << "Can't open file\n"; return -1; }
     printf("Reco File opened!\n");
     TTree *vertexReco = (TTree*) fp2->Get("vertexReco");
@@ -114,8 +144,8 @@ int main(int argc, char **argv)
     printf("Input files loaded.  Setting up detector stuff.\n");
     printf("------------------\n");
     
-    string setupfile;
-    setupfile = argv[7];
+    // string setupfile;
+    // setupfile = argv[2];
     Settings *settings1 = new Settings();
     settings1->ReadFile(setupfile); 
     IceModel *icemodel=new IceModel(settings1->ICE_MODEL + settings1->NOFZ*10,settings1->CONSTANTICETHICKNESS * 1000 + settings1->CONSTANTCRUST * 100 + settings1->FIXEDELEVATION * 10 + 0,settings1->MOOREBAY);// creates Antarctica ice model
@@ -134,7 +164,7 @@ int main(int argc, char **argv)
     printf("------------------\n");
 
     char outfile_name[400];
-    sprintf(outfile_name, "%s/deconvolvedWaveforms_run_%s.root", argv[6], argv[3]);    
+    sprintf(outfile_name, "%s/deconvolvedWaveforms_run_%s.root", outputDir, runNumber);    
     
     std::cout<<"Output name is "<<outfile_name<<std::endl;
     TFile *fpOut = TFile::Open(outfile_name, "RECREATE");
@@ -342,18 +372,18 @@ int main(int argc, char **argv)
 
                 }
                 
-                // Quick and dirty hack to filter out frequencies above 850 MHz and below 100 MHz.             
+                // Quick and dirty hack to filter out frequencies above 850 MHz and below 100 MHz to match ARA's bandpass filter.             
                 if (freq_tmp > 850.*1.e6 or freq_tmp < 100.*1.e6) {
                     V_forfft[2*n] = 0;
                     V_forfft[2*n+1] = 0;
                 }                   
                 //Apply homemade butterworth filter of the fourth order
-                double freqMin = 150*1e6;
-                double freqMax = 300*1e6;
+                // double freqMin = 150*1e6;
+                // double freqMax = 300*1e6;
                 
-                //Trying user inputted butterworth filter
-                // double freqMin = atof(argv[7])*1e6;
-                // double freqMax = atof(argv[8])*1e6;
+                // //Trying user inputted butterworth filter
+                // double freqMin = atof(argv[2])*1e6;
+                // double freqMax = atof(argv[3])*1e6;
   
                 
                 double weight = 1;  // Setting initial weight to one, then applying bandpass.  Weight is then multiplied by signal in this bin.
