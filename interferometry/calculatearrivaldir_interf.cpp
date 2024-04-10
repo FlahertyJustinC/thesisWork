@@ -25,6 +25,7 @@ UsefulAtriStationEvent *usefulAtriEvPtr;
 #include "IceModel.h"
 
 #include "helper.h"
+#include "tools.h"
 
 void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi, double &peakCorr) {
 
@@ -40,17 +41,13 @@ void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi,
     peakTheta = maxTheta;
 } 
 
+//TODO: make radii and numScanned a little more dynamic so that it doesn't have to be hardcoded.  Maybe had it scan the rt_tables folder to have ti compile a list of radii that match the station, then defining the radii array using those values?  numScanned would simply just be the length of radii[]. Should also have it scan AFTER the station number is declared.  4/6/2024
 double radii[] = {
       0,  150,  300,  450,  600,  750,  900, 1050, 1200, 1350, 1500, 1650, 1800, 1950,
  2100, 2250, 2400, 2550, 2700, 2850, 3000, 3150, 3300, 3450, 3600, 3750, 3900, 4050,
  4200, 4350, 4500, 4650, 4800, 4950
 };
 const int numScanned = 34;
-
-// double radii[] = {
-//     1500, 3300
-// };
-// const int numScanned = 2;
 
 int main(int argc, char **argv)
 {
@@ -60,11 +57,14 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    //Todo: check if these values are the same across stations and configs, or if I need to make it dynamic 4/9/2024
     double interpV = 0.4;
     double interpH = 0.625;
 
-    int station = atoi(argv[1]);
+    int station = atoi(argv[1]);  //This will be made redundant when we include the setupfile. 4/6/2024
     int runNum = atoi(argv[2]);
+    char* inputFile = argv[3];
+    char* outputDir = argv[4];
 
     // set up correlator and pairs
     RayTraceCorrelator *theCorrelators[numScanned];
@@ -74,7 +74,7 @@ int main(int argc, char **argv)
         double radius = radii[r];
         printf("Loading Radius %.2f\n",radius);
         double angular_size = 1.;
-        int iceModel = 0;
+        int iceModel = 0;  //This should be replaced with whatever ice model is used in the setup file. 4/6/2024
         char dirPath[500];
         char refPath[500];
         //std::string topDir = "/mnt/home/baclark/ara/rt_tables";
@@ -86,13 +86,13 @@ int main(int argc, char **argv)
             topDir.c_str(), station, iceModel, radius, angular_size
         );
 
-        int numAntennas = 16;
+        int numAntennas = 16; //While this should be fine for all stations, it should be dynamic to the settings file as well. 4/6/2024
         theCorrelators[r] = new RayTraceCorrelator(station, numAntennas, radius, angular_size, dirPath, refPath);
         theCorrelators[r]->LoadTables();        
     }
     
     AraGeomTool *geomTool = AraGeomTool::Instance();
-    std::vector<int> excludedChannels = {15};
+    std::vector<int> excludedChannels = {15};  //TODO: This looks like it's specific to ARA2.  Should make dynamic, either as a station/config thing or command line argument. 4/6/2024.
     std::map< int, std::vector<int> > pairs_V = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kVertical, excludedChannels);
     std::map< int, std::vector<int> > pairs_H = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kHorizontal, excludedChannels);
 
@@ -101,7 +101,7 @@ int main(int argc, char **argv)
     printf("------------------\n");
 
     char outfile_name[400];
-    sprintf(outfile_name, "%s/recangle_reco_out_run_%d.root", argv[4], runNum);
+    sprintf(outfile_name, "%s/recangle_reco_out_run_%d.root", outputDir, runNum);
     std::cout<<"Output name is "<<outfile_name<<std::endl;
     TFile *fpOut = TFile::Open(outfile_name, "RECREATE");
     if(!fpOut){ std::cerr<<"Cannot open output file "<<fpOut<<std::endl; return -1; }
@@ -127,8 +127,15 @@ int main(int argc, char **argv)
     int likelySol_out;
     double true_arrivalThetas_out[16];
     double true_arrivalPhis_out[16];
+    double cutoffTime[16];    
+    
+    int eventNumber;
+    int unixTime;
+    int unixTimeUs;
+    int timeStamp;    
 
     double weight_out;
+    double weight;
     double snrs_out[16];
     double v_snr_out;
     double h_snr_out;
@@ -145,6 +152,7 @@ int main(int argc, char **argv)
     outTree->Branch("reco_arrivalThetas", reco_arrivalThetas_out, "reco_arrivalThetas_out[16]/D");
     outTree->Branch("reco_arrivalPhis", reco_arrivalPhis_out, "reco_arrivalPhis_out[16]/D");
 
+    //These are simulation specific, and should be set to zero or delete if using a real data reconstruction
     outTree->Branch("trueTheta", &trueTheta_out, "trueTheta_out/D");
     outTree->Branch("truePhi", &truePhi_out, "truePhi_out/D");
     outTree->Branch("trueR", &trueR_out, "trueR_out/D");
@@ -156,52 +164,78 @@ int main(int argc, char **argv)
     outTree->Branch("snrs", snrs_out, "snrs_out[16]/D");
     outTree->Branch("v_snr", &v_snr_out, "v_snr_out/D");
     outTree->Branch("h_snr", &h_snr_out, "h_snr_out/D");
+    
+    //These are to accomodate a real data reconstruction
+    outTree->Branch("eventNumber", &eventNumber, "eventNumber/I");
+    outTree->Branch("unixTime", &unixTime, "unixTime/I");
+    outTree->Branch("unixTimeUs", &unixTimeUs, "unixTimeUs/I");
+    outTree->Branch("timeStamp", &timeStamp, "timeStamp/I");
+    
+    //This should work for any double-peak event, as simulated events can show D and R solution in a large enough trigger window.
+    outTree->Branch("cutoffTime", &cutoffTime, "cutoffTime[16]/D");    
 
     printf("------------------\n");
     printf("Output File Setup Complete. Begin looping events\n");
     printf("------------------\n");
 
     printf("Opening file...\n");
-    TFile *fp = TFile::Open(argv[3]);
+    TFile *fp = TFile::Open(inputFile);
     if(!fp) { std::cerr << "Can't open file\n"; return -1; }
     printf("File opened!\n");
-
-    // data like
+    
+    //TODO: Implement the code below that differentiates between real and simulated data. 4/6/2024
+    
+    //Import eventTree
     TTree *eventTree = (TTree*) fp->Get("eventTree");
     printf("Event tree opened!\n");
     if(!eventTree) { std::cerr << "Can't find eventTree\n"; return -1; }
-    eventTree->SetBranchAddress("UsefulAtriStationEvent", &usefulAtriEvPtr);
-    double weight;
-    eventTree->SetBranchAddress("weight", &weight);
     Long64_t numEntries=eventTree->GetEntries();
+    cout << "eventTree has " << numEntries << " entries." << endl;
+    RawAtriStationEvent *rawAtriEvPtr=0;
     
-    // simulation
+    // Check if sim or real data file by checking for existence of AraTree
     TTree *simSettingsTree;
-    Detector *detector = 0;
     simSettingsTree=(TTree*) fp->Get("AraTree");
-    if(!simSettingsTree) { std::cerr << "Can't find AraTree\n"; return -1; }
-    simSettingsTree->SetBranchAddress("detector", &detector);
-    simSettingsTree->GetEntry(0);
-    std::vector<double> average_position = get_detector_cog(detector);
-    printf("Detector Center %.2f, %.2f, %.2f \n", average_position[0], average_position[1], average_position[2]);
+    bool dataLike = false;
+    //data like
+    if(!simSettingsTree) { 
+        dataLike = true;
+        std::cerr << "Can't find AraTree.  Importing as real data.\n";
+        eventTree->SetBranchAddress("event",&rawAtriEvPtr);
+        weight = 1;
+    }
+    // sim like
+    else {
+        std::cerr << "AraTree exists.  Importing as simulated data.\n";
+        eventTree->SetBranchAddress("UsefulAtriStationEvent", &usefulAtriEvPtr);
+        weight;
+        eventTree->SetBranchAddress("weight", &weight);
+        Detector *detector = 0;
+        simSettingsTree=(TTree*) fp->Get("AraTree");
+        if(!simSettingsTree) { std::cerr << "Can't find AraTree\n"; return -1; }
+        simSettingsTree->SetBranchAddress("detector", &detector);
+        simSettingsTree->GetEntry(0);
+        std::vector<double> average_position = get_detector_cog(detector);
+        printf("Detector Center %.2f, %.2f, %.2f \n", average_position[0], average_position[1], average_position[2]);
 
-    
-    TTree *simTree;
-    Event *eventPtr = 0; // it is apparently incredibly important that this be initialized to zero...
-    Report *reportPtr = 0;
-    simTree=(TTree*) fp->Get("AraTree2");
-    if(!simTree) { std::cerr << "Can't find AraTree2\n"; return -1; }
-    simTree->SetBranchAddress("event", &eventPtr);
-    simTree->SetBranchAddress("report", &reportPtr);
+
+        TTree *simTree;
+        Event *eventPtr = 0; // it is apparently incredibly important that this be initialized to zero...
+        Report *reportPtr = 0;
+        simTree=(TTree*) fp->Get("AraTree2");
+        if(!simTree) { std::cerr << "Can't find AraTree2\n"; return -1; }
+        simTree->SetBranchAddress("event", &eventPtr);
+        simTree->SetBranchAddress("report", &reportPtr);
+    }
 
     printf("------------------\n");
     printf("Input files loaded. Set up ray tracing business\n");
     printf("------------------\n");
     
     RaySolver *raySolver = new RaySolver;
-    IceModel *iceModel = new IceModel(0 + 1*10, 0, 0);
+    IceModel *iceModel = new IceModel(0 + 1*10, 0, 0); //TODO: Should be dictated by setup file. 4/6/2024
     Settings *settings = new Settings();
-    // configure settings    
+    // configure settings    TODO: All of these should be dictated by the setup file. 4/6/2024
     settings->Z_THIS_TOLERANCE = 1; // higher tolerance
     settings->Z_TOLERANCE = 0.05;
     settings->NOFZ=1; // make sure n(z) is turned on
@@ -210,49 +244,72 @@ int main(int argc, char **argv)
     for(Long64_t event=0;event<numEntries;event++) {
         fp->cd();
         eventTree->GetEntry(event);
-        simTree->GetEntry(event);
+        if (dataLike) {
+            UsefulAtriStationEvent *usefulAtriEvPtr = new UsefulAtriStationEvent(rawAtriEvPtr, AraCalType::kLatestCalib);
+        }
+        // else {
+        //     simTree->GetEntry(event);
+        // }
 
         std::cout<<"Looking at event number "<<event<<std::endl;
         
-        // Debugging - JCF 6/7/2023
-        // if (event!=0){
-        //     continue;
-        // }
+        // std::map<int, TGraph*> interpolatedWaveforms;
+        // for(int i=0; i<16; i++){
+        //     TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);
+        //     // TGraph *grInt = FFTtools::getInterpolatedGraph(gr,i<8?interpV:interpH);
+        //     TGraph *grInt = FFTtools::getInterpolatedGraph(gr,0.5);
+        //     cout << "waveform length = " << grInt->GetN() << endl;
+        //     interpolatedWaveforms[i] = grInt;
+        //     delete gr;
+        // }        
         
-        // if (rawAtriEvPtr->eventNumber != 0){
-        //     continue;
-        // }
-        // End debugging - JCF 6/7/2023
-
-        std::vector<double> event_position;
-        event_position.push_back(eventPtr->Nu_Interaction[0].posnu.GetX());
-        event_position.push_back(eventPtr->Nu_Interaction[0].posnu.GetY());
-        event_position.push_back(eventPtr->Nu_Interaction[0].posnu.GetZ());
-        // printf("Posnu %.2f, %.2f, %.2f \n", event_position[0], event_position[1], event_position[2]);
-
-        std::vector<double> difference;
-        difference.push_back(event_position[0] - average_position[0]);
-        difference.push_back(event_position[1] - average_position[1]);
-        difference.push_back(event_position[2] - average_position[2]);
-        // printf("Difference %.2f, %.2f, %.2f \n", difference[0], difference[1], difference[2]);
-
-        Position diff_true;
-        diff_true.SetXYZ(difference[0], difference[1], difference[2]);
-        printf("  Vertex Theta %.2f, Phi %.2f, R %.2f\n", diff_true.Theta()*TMath::RadToDeg(), diff_true.Phi()*TMath::RadToDeg(), diff_true.R());
-
-
-        /*
-            First, we need to do correlation maps to get directions
-        */
-
+        
+        //TODO: The double peak finder and cropping isn't playing nice with a simulated event with only one peak.
         std::map<int, TGraph*> interpolatedWaveforms;
         for(int i=0; i<16; i++){
             TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);
-            TGraph *grInt = FFTtools::getInterpolatedGraph(gr,i<8?interpV:interpH);
-            interpolatedWaveforms[i] = grInt;
-            delete gr;
-        }
 
+            //Put Double peak finder stuff here
+            TGraph *grInt = FFTtools::getInterpolatedGraph(gr, 0.5);  //Real data interpolation
+            
+            vector<double> vvHitTimes; // vector of hit times
+            vector<double> vvPeakIntPowers; // vector of peak values
+            int numSearchPeaks=2; //only look for two peaks  //TODO:  Maybe make this a console argument?  Though the cropping is based on having two peaks 4/10/2024
+            double peakSeparation=50.0;  //Minimum separation between peaks.  Closest seperation is expected to be ~100 ns.
+            getAbsMaximum_N(grInt, numSearchPeaks, peakSeparation, vvHitTimes, vvPeakIntPowers);
+            double firstPeak;
+            double secondPeak;
+            if(vvHitTimes[1]>vvHitTimes[0]) {
+                firstPeak = vvHitTimes[0];
+                secondPeak = vvHitTimes[1];
+            } 
+            else {
+                firstPeak = vvHitTimes[1];
+                secondPeak = vvHitTimes[0];
+            }
+            cutoffTime[i] = firstPeak + (secondPeak-firstPeak)/2;
+            //End double peak finder stuff
+           
+            // TGraph *grCrop = FFTtools::cropWave(grWaveformsInt, -500, cutoffTime[i]);
+            // TGraph *grCrop = FFTtools::cropWave(grWaveformsInt, grWaveformsInt->GetX()[0], cutoffTime[i]);
+            grInt = FFTtools::cropWave(grInt, grInt->GetX()[0], cutoffTime[i]);
+            // TGraph *grCrop = grWaveformsInt;
+            // TGraph *grInt = grWaveformsInt;
+            
+            cout << "waveform length = " << grInt->GetN() << endl;
+            // TGraph *grInt;
+            // if (grCrop->GetN() < 2048) {
+            //     grInt = FFTtools::padWaveToLength(grCrop, 2048);
+            // }
+            // else {
+            //     grInt = FFTtools::padWaveToLength(grCrop, 4096);
+            // }
+            interpolatedWaveforms[i] = grInt;
+            // delete gr, grCrop, grInt;
+            delete gr, grInt;
+        }        
+
+        //TODO: Use the data-driven noise model that AraSim has implemented 4/9/2024
         //Adding noise calculation on a per channel basis rather than hard-coding a noise value - JCF 7/24/2023
         // double noise = 46.; // the noise is basically 45 mV (independent of channel) in MC
         double noise; // Initializing noise for calculation from waveform below:
@@ -336,24 +393,24 @@ int main(int argc, char **argv)
             maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, 1, weights_H)); // reflected solution
             
             // Debugging - JCF 6/7/2023
-            // TCanvas *c = new TCanvas("","", 1200, 950);            
-            // maps[0]->Draw("colz");
-            // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
-            // maps[0]->GetYaxis()->SetTitle("Theta [deg]");
-            // maps[0]->GetYaxis()->SetTitleSize(0.05);
-            // maps[0]->GetYaxis()->SetLabelSize(0.03);
-            // maps[0]->GetYaxis()->SetTitleOffset(0.6);
-            // maps[0]->GetXaxis()->SetTitleSize(0.05);
-            // maps[0]->GetXaxis()->SetLabelSize(0.03);
-            // maps[0]->GetXaxis()->SetTitleOffset(0.6);
-            // gStyle->SetOptStat(0);
-            // maps[0]->GetXaxis()->CenterTitle();
-            // maps[0]->GetYaxis()->CenterTitle();
-            // gPad->SetRightMargin(0.15);
-            // char title[500];
-            // sprintf(title,"debuggingPlots/maps_ev%d_rad%.2f.png", event, radii[r]);
-            // c->SaveAs(title);
-            // delete c;
+            TCanvas *c = new TCanvas("","", 1200, 950);            
+            maps[0]->Draw("colz");
+            maps[0]->GetXaxis()->SetTitle("Phi [deg]");
+            maps[0]->GetYaxis()->SetTitle("Theta [deg]");
+            maps[0]->GetYaxis()->SetTitleSize(0.05);
+            maps[0]->GetYaxis()->SetLabelSize(0.03);
+            maps[0]->GetYaxis()->SetTitleOffset(0.6);
+            maps[0]->GetXaxis()->SetTitleSize(0.05);
+            maps[0]->GetXaxis()->SetLabelSize(0.03);
+            maps[0]->GetXaxis()->SetTitleOffset(0.6);
+            gStyle->SetOptStat(0);
+            maps[0]->GetXaxis()->CenterTitle();
+            maps[0]->GetYaxis()->CenterTitle();
+            gPad->SetRightMargin(0.15);
+            char title[500];
+            sprintf(title,"maps_ev%d_rad%.2f.png", event, radii[r]);
+            c->SaveAs(title);
+            delete c;
             // End debugging
 
             std::vector<double> bestOne;
@@ -369,19 +426,6 @@ int main(int argc, char **argv)
             double peakCorr, peakTheta, peakPhi;
             getCorrMapPeak(maps[element], peakTheta, peakPhi, peakCorr);
             peakCorrs.push_back(peakCorr);
-            
-            // // fix the theta range
-            // if(peakTheta < 0){
-            //     peakTheta = abs(peakTheta) + 90;
-            // }
-            // else if(peakTheta>0){
-            //     peakTheta = 90 - peakTheta;
-            // }
-            // else{
-            //     peakTheta+=90;
-            // }
-
-            // if(peakPhi < 0) peakPhi =360.0 - abs(peakPhi);
 
             peakThetas.push_back(peakTheta);
             peakPhis.push_back(peakPhi);
@@ -400,40 +444,9 @@ int main(int argc, char **argv)
         }
         auto it = max_element(std::begin(peakCorrs), std::end(peakCorrs));
         int element = distance(peakCorrs.begin(), it);
-        // printf("  Best Radius is %.2f, with Corr %.4f, Theta %.2f, Phi %.2f \n", 
-        //     radii[element], peakCorrs[element],
-        //     peakThetas[element], peakPhis[element]
-        //     );
-        
-        // double temp_bestTheta = peakThetas[element];
-        // double temp_bestPhi = peakPhis[element];
-        // int temp_binTheta, temp_binPhi;
-        // theCorrelators[element]->ConvertAngleToBins(temp_bestTheta, temp_bestPhi, temp_binTheta, temp_binPhi);
-        // double temp_arrivalTheta, temp_arrivalPhi;
-        // int temp_bestSol = peakSol[element];
-        // theCorrelators[element]->LookupArrivalAngles(0, temp_bestSol, 
-        //     temp_binTheta, temp_binPhi,
-        //     temp_arrivalTheta, temp_arrivalPhi
-        // );
-
-        // rerange_theta_phi(temp_bestTheta, temp_bestPhi);
-
-        // printf("  Best Vertex Theta/Phi: %.2f/%.2f. Corresponding Arrival Theta/Phi %.2f/%.2f, and Bin %d/%d \n",
-        //     temp_bestTheta, temp_bestPhi,
-        //     TMath::RadToDeg()*temp_arrivalTheta, TMath::RadToDeg()*temp_arrivalPhi,
-        //     temp_binTheta, temp_binPhi
-        // );
 
         // int likely_sol = guess_triggering_solution(eventPtr, reportPtr);
-        int likely_sol = 0; //Forcing direct solutions only for debugging - JCF 7/5/2023
-        std::map<int, double> thetas_truth = get_value_from_mc_truth("theta", likely_sol, reportPtr);
-        std::map<int, double> phis_truth = get_value_from_mc_truth("phi", likely_sol, reportPtr);
-        // for(int i=0; i<16; i++){
-        //     printf("    I %d, True Theta/Phi is %.2f, %.2f\n",i, 
-        //         TMath::RadToDeg()*thetas_truth.find(i)->second,
-        //         TMath::RadToDeg()*phis_truth.find(i)->second)
-        //         ;
-        // }
+        // int likely_sol = 0; //Forcing direct solutions only for debugging - JCF 7/5/2023
 
         // stash the output
         fpOut->cd();
@@ -461,27 +474,11 @@ int main(int argc, char **argv)
                 this_binTheta, this_binPhi,
                 this_arrivalTheta, this_arrivalPhi
             );
-            // printf("  Ant %d, Reco Arrival Theta %.2f, Reco Arrival Phi %.2f \n",
-            //     i, this_arrivalTheta, this_arrivalPhi
-            // );
             reco_arrivalThetas_out[i] = this_arrivalTheta;
             reco_arrivalPhis_out[i] = this_arrivalPhi; 
         }
 
-        // then the true quantities
-        for(int i=0; i<16; i++){
-            double this_true_theta = thetas_truth.find(i)->second;
-            double this_true_phi = phis_truth.find(i)->second;
-            // printf("  Ant %d, True Arrival Theta %.2f, Reco Arrival Phi %.2f \n",
-            //     i, this_true_theta, this_true_phi
-            // );
-            true_arrivalThetas_out[i] = this_true_theta;
-            true_arrivalPhis_out[i] = this_true_phi; 
-        }
-        trueTheta_out = diff_true.Theta() * TMath::RadToDeg();
-        truePhi_out = diff_true.Phi() * TMath::RadToDeg();
-        trueR_out = diff_true.R();
-        likelySol_out = likely_sol;
+        // likelySol_out = likely_sol;
         
         weight_out = weight;
         for(int i=0; i<16; i++){
