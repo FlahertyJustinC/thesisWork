@@ -330,7 +330,7 @@ int main(int argc, char **argv)
             // grInt = FFTtools::cropWave(grInt, grInt->GetX()[0], grInt->GetX()[1024-1]);  
             
             //Testing padding waveform to 2048
-            // grInt = FFTtools::padWaveToLength(grInt, 2048);
+            grInt = FFTtools::padWaveToLength(grInt, 2048);
 
             
             cout << "interpolated waveform length = " << grInt->GetN() << endl;
@@ -384,12 +384,14 @@ int main(int argc, char **argv)
         // double noise = 0.; // Debugging and testing for noiseless waveforms. - JCF 6/25/2023
         std::map<int, double> snrs; // map of channels to SNRs
         for(int i=0; i<16; i++){
+            //Todo: This noise calculation is problematic for padded waveforms, as there is padding at the front and back of the waveform.  This is then sampling noise in a region of zero signal.  I'll try a hard-coded noise to see if that fixes my waveform padding issue. 4/14/2024
             //Calculate noise from rms of first 50 ns of waveform
             double voltageSubset[100];
             for(int j=0; j<100; j++){
                 voltageSubset[j] = (interpolatedWaveforms[i]->GetY())[j];
             }
-            noise = TMath::RMS(100,voltageSubset);
+            // noise = TMath::RMS(100,voltageSubset);
+            noise = 45;  //trying hard-coded noise for debugging - JCF 4/14/2024
             
             double peak_max = TMath::MaxElement(interpolatedWaveforms[i]->GetN(), interpolatedWaveforms[i]->GetY());
             // cout << "peak_max = " << peak_max << endl;
