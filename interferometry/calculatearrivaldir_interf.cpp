@@ -224,7 +224,7 @@ int main(int argc, char **argv)
     std::vector<double> average_position;
     //data like
     if(!simSettingsTree) { 
-        dataLike = true;
+        dataLike = true;            
         std::cerr << "Can't find AraTree.  Importing as real data.\n";
         eventTree->SetBranchAddress("event",&rawAtriEvPtr);
         weight = 1;
@@ -324,16 +324,20 @@ int main(int argc, char **argv)
             //End double peak finder stuff
             
             //Crop waveform to first peak
-            // grInt = FFTtools::cropWave(grInt, grInt->GetX()[0], cutoffTime[i]);
+            grInt = FFTtools::cropWave(grInt, grInt->GetX()[0], cutoffTime[i]);
+            cout << "cropped waveform length = " << grInt->GetN() << endl;
             
             //Test cropping waveform to 1024
             // grInt = FFTtools::cropWave(grInt, grInt->GetX()[0], grInt->GetX()[1024-1]);  
             
-            //Testing padding waveform to 2048
-            grInt = FFTtools::padWaveToLength(grInt, 2048);
+            // //Testing padding waveform to 2048
+            // grInt = FFTtools::padWaveToLength(grInt, 2048);
+            
+            //Testing padding waveform to settings1->NFOUR
+            grInt = FFTtools::padWaveToLength(grInt, settings1->NFOUR);            
 
             
-            cout << "interpolated waveform length = " << grInt->GetN() << endl;
+            
             // TGraph *grInt;
             // if (grCrop->GetN() < 2048) {
             //     grInt = FFTtools::padWaveToLength(grCrop, 2048);
@@ -343,6 +347,7 @@ int main(int argc, char **argv)
             // }
             
             //Adding dynamic waveform padding to get length for factor of 2 for FFT purposes. - JCF 4/11/2024
+            //TODO:  This padding needs ot be identical across all channels, so loop over all channels to find the appropriate padding length, then pad all channels to that length.  This should probably be the same across all events as well.
             // int n=1; //Initial power of two
             // do {
             //     // cout << "Comparing waveform against " << TMath::Power(2,n) << endl;
