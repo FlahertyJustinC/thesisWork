@@ -297,10 +297,9 @@ int main(int argc, char **argv)
         for(int i=0; i<16; i++){
             TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);
             
+            cout << "**********************" << endl;
+            
             cout << "initial waveform length = " << gr->GetN() << endl;
-            // cout << "time[0] = " << gr->GetX()[0] << endl;
-            // cout << "time[1] = " << gr->GetX()[1] << endl;
-            // cout << "time[2] = " << gr->GetX()[2] << endl;
 
             //Put Double peak finder stuff here
             TGraph *grInt = FFTtools::getInterpolatedGraph(gr, 0.5);  //Real data interpolation
@@ -327,45 +326,13 @@ int main(int argc, char **argv)
             grInt = FFTtools::cropWave(grInt, grInt->GetX()[0], cutoffTime[i]);
             cout << "cropped waveform length = " << grInt->GetN() << endl;
             
-            //Test cropping waveform to 1024
-            // grInt = FFTtools::cropWave(grInt, grInt->GetX()[0], grInt->GetX()[1024-1]);  
-            
-            // //Testing padding waveform to 2048
-            // grInt = FFTtools::padWaveToLength(grInt, 2048);
-            
-            //Testing padding waveform to settings1->NFOUR
-            grInt = FFTtools::padWaveToLength(grInt, settings1->NFOUR);            
-
-            
-            
-            // TGraph *grInt;
-            // if (grCrop->GetN() < 2048) {
-            //     grInt = FFTtools::padWaveToLength(grCrop, 2048);
-            // }
-            // else {
-            //     grInt = FFTtools::padWaveToLength(grCrop, 4096);
-            // }
-            
-            //Adding dynamic waveform padding to get length for factor of 2 for FFT purposes. - JCF 4/11/2024
-            //TODO:  This padding needs ot be identical across all channels, so loop over all channels to find the appropriate padding length, then pad all channels to that length.  This should probably be the same across all events as well.
-            // int n=1; //Initial power of two
-            // do {
-            //     // cout << "Comparing waveform against " << TMath::Power(2,n) << endl;
-            //     if (grInt->GetN() == TMath::Power(2,n)) {
-            //         // cout << "Waveform already a power of two in length." << endl;
-            //         n++;
-            //         continue;
-            //     }
-            //     else if (grInt->GetN() < TMath::Power(2,n)) {
-            //         cout << "Padding waveform to length of " << TMath::Power(2,n) << endl;
-            //         grInt = FFTtools::padWaveToLength(grInt, TMath::Power(2,n));
-            //     }
-            //     else {
-            //         n++;
-            //         // cout << "Increasing iterator to " << TMath::Power(2,n) << endl;
-            //     }
-            // }
-            // while (grInt->GetN() > TMath::Power(2,n-1));
+            //Either pad or crop waveform to fit NFOUR/2
+            if (grInt->GetN() < settings1->NFOUR/2) {
+                grInt = FFTtools::padWaveToLength(grInt, settings1->NFOUR/2);
+            }
+            else if (grInt->GetN() > settings1->NFOUR/2) {
+                grInt = FFTtools::cropWave(grInt, grInt->GetX()[0], grInt->GetX()[settings1->NFOUR/2-1]);
+            }
             
             cout << "padded waveform length = " << grInt->GetN() << endl;
             interpolatedWaveforms[i] = grInt;
