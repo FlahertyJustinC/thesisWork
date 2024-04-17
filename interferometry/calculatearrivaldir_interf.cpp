@@ -67,37 +67,8 @@ int main(int argc, char **argv)
     char* inputFile = argv[3];
     char* outputDir = argv[4];
     char* setupfile = argv[5];
-
-    // set up correlator and pairs
-    RayTraceCorrelator *theCorrelators[numScanned];
-    for(int r=0; r<numScanned; r++){
-        
-        // setup the paths to our ray tracing tables
-        double radius = radii[r];
-        printf("Loading Radius %.2f\n",radius);
-        double angular_size = 1.;
-        int iceModel = 0;  //This should be replaced with whatever ice model is used in the setup file. 4/6/2024
-        char dirPath[500];
-        char refPath[500];
-        //std::string topDir = "/mnt/home/baclark/ara/rt_tables";
-        std::string topDir = "rt_tables";
-        sprintf(dirPath, "%s/arrivaltimes_station_%d_icemodel_%d_radius_%.2f_angle_%.2f_solution_0.root",
-            topDir.c_str(), station, iceModel, radius, angular_size
-        );
-        sprintf(refPath, "%s/arrivaltimes_station_%d_icemodel_%d_radius_%.2f_angle_%.2f_solution_1.root",
-            topDir.c_str(), station, iceModel, radius, angular_size
-        );
-
-        int numAntennas = 16; //While this should be fine for all stations, it should be dynamic to the settings file as well. 4/6/2024
-        theCorrelators[r] = new RayTraceCorrelator(station, numAntennas, radius, angular_size, dirPath, refPath);
-        theCorrelators[r]->LoadTables();        
-    }
     
-    AraGeomTool *geomTool = AraGeomTool::Instance();
-
-    printf("------------------\n");
-    printf("Correlator Setup Complete. Make Output Files\n");
-    printf("------------------\n");
+    
 
     char outfile_name[400];
     sprintf(outfile_name, "%s/recangle_reco_out_run_%d.root", outputDir, runNum);
@@ -174,7 +145,7 @@ int main(int argc, char **argv)
     outTree->Branch("cutoffTime", &cutoffTime, "cutoffTime[16]/D");    
 
     printf("------------------\n");
-    printf("Output File Setup Complete. Begin looping events\n");
+    printf("Output File Setup Complete. Begin correlator setup.\n");
     printf("------------------\n");
 
     printf("Opening file...\n");
@@ -200,6 +171,38 @@ int main(int argc, char **argv)
     Report *report = new Report(detector, settings1);
     RaySolver *raySolver = new RaySolver;
     //End attempt at importing setup parameters
+    
+    // set up correlator and pairs
+    RayTraceCorrelator *theCorrelators[numScanned];
+    for(int r=0; r<numScanned; r++){
+        
+        // setup the paths to our ray tracing tables
+        double radius = radii[r];
+        printf("Loading Radius %.2f\n",radius);
+        double angular_size = 1.;
+        int icemodel = 0;  //This should be replaced with whatever ice model is used in the setup file. 4/6/2024
+        // cout << "Using icemodel = " << icemodel << endl;
+        char dirPath[500];
+        char refPath[500];
+        //std::string topDir = "/mnt/home/baclark/ara/rt_tables";
+        std::string topDir = "rt_tables";
+        sprintf(dirPath, "%s/arrivaltimes_station_%d_icemodel_%d_radius_%.2f_angle_%.2f_solution_0.root",
+            topDir.c_str(), station, icemodel, radius, angular_size
+        );
+        sprintf(refPath, "%s/arrivaltimes_station_%d_icemodel_%d_radius_%.2f_angle_%.2f_solution_1.root",
+            topDir.c_str(), station, icemodel, radius, angular_size
+        );
+
+        int numAntennas = 16; //While this should be fine for all stations, it should be dynamic to the settings file as well. 4/6/2024
+        theCorrelators[r] = new RayTraceCorrelator(station, numAntennas, radius, angular_size, dirPath, refPath);
+        theCorrelators[r]->LoadTables();        
+    }
+    
+    AraGeomTool *geomTool = AraGeomTool::Instance();
+
+    printf("------------------\n");
+    printf("Correlator Setup Complete. Begin looping events.\n");
+    printf("------------------\n");    
     
     
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
@@ -243,10 +246,6 @@ int main(int argc, char **argv)
         average_position = get_detector_cog(detector);
         printf("Detector Center %.2f, %.2f, %.2f \n", average_position[0], average_position[1], average_position[2]);
 
-
-        // TTree *simTree;
-        // Event *eventPtr = 0; // it is apparently incredibly important that this be initialized to zero...
-        // Report *reportPtr = 0;
         simTree=(TTree*) fp->Get("AraTree2");
         if(!simTree) { std::cerr << "Can't find AraTree2\n"; return -1; }
         simTree->SetBranchAddress("event", &eventPtr);
@@ -289,38 +288,162 @@ int main(int argc, char **argv)
         
         //TODO: The double peak finder and cropping isn't playing nice with a simulated event with only one peak.
         std::map<int, TGraph*> interpolatedWaveforms;
+        std::vector<double> noiseRms(16);
         
-        //Debugging, making plots of waveforms
-        TGraph *g[16];
-        TCanvas *c = new TCanvas("","", 1200, 1200);
-        TMultiGraph *mg = new TMultiGraph();        
+        TCanvas *c = new TCanvas("","", 1600, 1600);
+        c->Divide(4,4);
+        
+        //TODO: Implement independent loop for double peak finder that checks parter VPol and HPol channels to find the cutoff times.
+        for (int i=0; i<8; i++){
+            TGraph *grV = usefulAtriEvPtr->getGraphFromRFChan(i);
+            TGraph *grH = usefulAtriEvPtr->getGraphFromRFChan(i+8);
+            TGraph *grIntV = FFTtools::getInterpolatedGraph(grV, 0.5);  //Real data interpolation
+            TGraph *grIntH = FFTtools::getInterpolatedGraph(grH, 0.5);  //Real data interpolation
+            
+            int numNoiseSamples = 100;
+            double vPolvoltageSubset[numNoiseSamples];
+            double hPolvoltageSubset[numNoiseSamples];
+            for(int j=0; j<100; j++){
+                vPolvoltageSubset[j] = grIntV->GetY()[j];
+                hPolvoltageSubset[j] = grIntH->GetY()[j];
+            }
+            double noiseRmsChV = TMath::RMS(numNoiseSamples,vPolvoltageSubset);
+            double noiseRmsChH = TMath::RMS(numNoiseSamples,hPolvoltageSubset);
+            if (noiseRmsChV == 0) {
+                noiseRms[i]=1;
+            }
+            else {
+                noiseRms[i]=noiseRmsChV;
+            }            
+            if (noiseRmsChH == 0) {
+                noiseRms[i+8]=1;
+            }
+            else {
+                noiseRms[i+8]=noiseRmsChH;
+            }                    
+ 
+            vector<double> vvHitTimes; // vector of hit times
+            vector<double> vvPeakIntPowers; // vector of peak values   
+            vector<double> hhHitTimes; // vector of hit times
+            vector<double> hhPeakIntPowers; // vector of peak values
+            vector<double> primaryHitTimes; // vector of hit times
+            vector<double> primaryPeakIntPowers; // vector of peak values            
+            
+            int numSearchPeaks=2; //only look for two peaks  //TODO:  Maybe make this a console argument?  Though the cropping is based on having two peaks 4/10/2024
+            double peakSeparation=50.0;  //Minimum separation between peaks.  Closest seperation is expected to be ~100 ns.
+            getAbsMaximum_N(grIntV, numSearchPeaks, peakSeparation, vvHitTimes, vvPeakIntPowers);
+            getAbsMaximum_N(grIntH, numSearchPeaks, peakSeparation, hhHitTimes, hhPeakIntPowers);
+            
+            //Compare Vpol and Hpol peaks, choosing the larger peaked channel to serve as the primary peak.
+            double peakThresholdV = noiseRmsChV*4;
+            double peakThresholdH = noiseRmsChH*4;
+            double peakThreshold;
+            // cout << "peakThreshold = " << peakThreshold << endl;
+            double firstPeak;
+            double secondPeak;
+            
+            if (vvPeakIntPowers[0]/noiseRmsChV > hhPeakIntPowers[0]/noiseRmsChH) {
+                primaryPeakIntPowers = vvPeakIntPowers;
+                primaryHitTimes = vvHitTimes;
+                peakThreshold = peakThresholdV;
+            }
+            else {
+                primaryPeakIntPowers = hhPeakIntPowers;
+                primaryHitTimes = hhHitTimes;
+                peakThreshold = peakThresholdH;
+            }            
+            
+            
+            if (primaryPeakIntPowers[1] > peakThreshold) {
+                cout << "Assuming double-peak signal." << endl;
+                if(primaryHitTimes[1]>primaryHitTimes[0]) {
+                    firstPeak = primaryHitTimes[0];
+                    secondPeak = primaryHitTimes[1];
+                } 
+                else {
+                    firstPeak = primaryHitTimes[1];
+                    secondPeak = primaryHitTimes[0];
+                }
+                cutoffTime[i] = firstPeak + (secondPeak-firstPeak)/2;
+                cutoffTime[i+8] = firstPeak + (secondPeak-firstPeak)/2;
+                // cutoffTime[i] = grInt->GetX()[grInt->GetN() - 1];
+            }
+            else {
+                cout << "Assuming single-peak signal." << endl;
+                // cout << "grInt->GetN() = " << grInt->GetN() << endl;
+                // cout << "grInt->GetX()[grInt->GetN() - 1] = " << grInt->GetX()[grIntV->GetN() - 1] << endl;
+                
+                cutoffTime[i] = grIntV->GetX()[grIntV->GetN() - 1];
+                cutoffTime[i+8] = grIntH->GetX()[grIntH->GetN() - 1];
+                // cutoffTime[i] = grInt->GetX()[-1];
+            }      
+            
+            //Draw Vpol
+            c->cd(i+1); gPad->SetGrid(1,1);
+            grV->Draw();
+            TLine *l1v = new TLine(vvHitTimes[0], -1500, vvHitTimes[0], 1500);
+            l1v->SetLineColorAlpha(kBlue, 1);
+            l1v->Draw();    
+            TLine *l2v = new TLine(vvHitTimes[1], -1500, vvHitTimes[1], 1500);
+            l2v->SetLineColorAlpha(kRed, 1);
+            l2v->Draw();    
+            TLine *l3v = new TLine(-5000, vvPeakIntPowers[0], 5000, vvPeakIntPowers[0]);
+            l3v->SetLineColorAlpha(kBlue, 1);
+            l3v->Draw();    
+            TLine *l4v = new TLine(-5000, vvPeakIntPowers[1], 5000, vvPeakIntPowers[1]);
+            l4v->SetLineColorAlpha(kRed, 1);
+            l4v->Draw();  
+            TLine *l5v = new TLine(-5000, peakThresholdV, 5000, peakThresholdV);
+            l5v->SetLineColorAlpha(kGreen, 1);
+            l5v->Draw(); 
+            TLine *l6v = new TLine(cutoffTime[i], -1500, cutoffTime[i], 1500);
+            // l6->SetLineColorAlpha(kPink, 1);
+            l6v->SetLineStyle(kDashed);
+            l6v->Draw();
+            
+            //Draw Hpol
+            c->cd(i+1+8); gPad->SetGrid(1,1);
+            grH->Draw();
+            TLine *l1h = new TLine(hhHitTimes[0], -1500, hhHitTimes[0], 1500);
+            l1h->SetLineColorAlpha(kBlue, 1);
+            l1h->Draw();    
+            TLine *l2h = new TLine(hhHitTimes[1], -1500, hhHitTimes[1], 1500);
+            l2h->SetLineColorAlpha(kRed, 1);
+            l2h->Draw();    
+            TLine *l3h = new TLine(-5000, hhPeakIntPowers[0], 5000, hhPeakIntPowers[0]);
+            l3h->SetLineColorAlpha(kBlue, 1);
+            l3h->Draw();    
+            TLine *l4h = new TLine(-5000, hhPeakIntPowers[1], 5000, hhPeakIntPowers[1]);
+            l4h->SetLineColorAlpha(kRed, 1);
+            l4h->Draw();  
+            TLine *l5h = new TLine(-5000, peakThresholdH, 5000, peakThresholdH);
+            l5h->SetLineColorAlpha(kGreen, 1);
+            l5h->Draw(); 
+            TLine *l6h = new TLine(cutoffTime[i+8], -1500, cutoffTime[i+8], 1500);
+            // l6->SetLineColorAlpha(kPink, 1);
+            l6h->SetLineStyle(kDashed);
+            l6h->Draw();                 
+            
+            
+        }
+        
+        
         for(int i=0; i<16; i++){
             TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);
+            // c->cd(i+1); gPad->SetGrid(1,1);
+            // gr->Draw();            
+
             
             cout << "**********************" << endl;
+            
+            cout << "Ch = " << i << endl;
             
             cout << "initial waveform length = " << gr->GetN() << endl;
 
             //Put Double peak finder stuff here
             TGraph *grInt = FFTtools::getInterpolatedGraph(gr, 0.5);  //Real data interpolation
             
-            vector<double> vvHitTimes; // vector of hit times
-            vector<double> vvPeakIntPowers; // vector of peak values
-            int numSearchPeaks=2; //only look for two peaks  //TODO:  Maybe make this a console argument?  Though the cropping is based on having two peaks 4/10/2024
-            double peakSeparation=50.0;  //Minimum separation between peaks.  Closest seperation is expected to be ~100 ns.
-            getAbsMaximum_N(grInt, numSearchPeaks, peakSeparation, vvHitTimes, vvPeakIntPowers);
-            double firstPeak;
-            double secondPeak;
-            if(vvHitTimes[1]>vvHitTimes[0]) {
-                firstPeak = vvHitTimes[0];
-                secondPeak = vvHitTimes[1];
-            } 
-            else {
-                firstPeak = vvHitTimes[1];
-                secondPeak = vvHitTimes[0];
-            }
-            cutoffTime[i] = firstPeak + (secondPeak-firstPeak)/2;
-            //End double peak finder stuff
+            cout << "cutoffTime at " << cutoffTime[i] << endl;
             
             //Crop waveform to first peak
             grInt = FFTtools::cropWave(grInt, grInt->GetX()[0], cutoffTime[i]);
@@ -335,45 +458,23 @@ int main(int argc, char **argv)
             }
             
             cout << "padded waveform length = " << grInt->GetN() << endl;
-            interpolatedWaveforms[i] = grInt;
+            interpolatedWaveforms[i] = grInt;                              
             
-            //Debugging - plotting waveforms
-            if (i == 0) {
-                g[i] = grInt;
-                mg->Add(g[i]);
-                mg->Draw("AL");
-                char title[500];
-                sprintf(title, "waveform%d.png", i);
-                c->Print(title);
-            }
-            delete gr, grInt;
-        }     
-
-        //TODO: Use the data-driven noise model that AraSim has implemented 4/9/2024
-        //Adding noise calculation on a per channel basis rather than hard-coding a noise value - JCF 7/24/2023
-        // double noise = 46.; // the noise is basically 45 mV (independent of channel) in MC
-        double noise; // Initializing noise for calculation from waveform below:
-        // double noise = 0.; // Debugging and testing for noiseless waveforms. - JCF 6/25/2023
+        }
+        char title[500];
+        sprintf(title, "waveform.png");   
+        c->Print(title);
+    
         std::map<int, double> snrs; // map of channels to SNRs
         for(int i=0; i<16; i++){
-            //Todo: This noise calculation is problematic for padded waveforms, as there is padding at the front and back of the waveform.  This is then sampling noise in a region of zero signal.  I'll try a hard-coded noise to see if that fixes my waveform padding issue. 4/14/2024
-            //Calculate noise from rms of first 50 ns of waveform
-            double voltageSubset[100];
-            for(int j=0; j<100; j++){
-                voltageSubset[j] = (interpolatedWaveforms[i]->GetY())[j];
-            }
-            // noise = TMath::RMS(100,voltageSubset);
-            noise = 45;  //trying hard-coded noise for debugging - JCF 4/14/2024
             
             double peak_max = TMath::MaxElement(interpolatedWaveforms[i]->GetN(), interpolatedWaveforms[i]->GetY());
-            // cout << "peak_max = " << peak_max << endl;
             double peak_min = abs(TMath::MinElement(interpolatedWaveforms[i]->GetN(), interpolatedWaveforms[i]->GetY()));
-            // cout << "peak_min = " << peak_min << endl;
             if(peak_min > peak_max){
-                snrs[i] = peak_min/noise;
+                snrs[i] = peak_min/noiseRms[i];
             }
             else{
-                snrs[i] = peak_max/noise;
+                snrs[i] = peak_max/noiseRms[i];
             }
         }
         std::vector<double> snrs_v;
@@ -495,7 +596,7 @@ int main(int argc, char **argv)
         // reconstructed quantities first
         for(int r=0 ;r<numScanned; r++){
             peakCorrs_out[r] = peakCorrs[r];
-            peakThetas_out[r] = peakThetas[r];//*-1 + 90;  //In degrees, but with zero at the horizontal.  Changing to match zero at vertical. JCF 4/11/2024
+            peakThetas_out[r] = peakThetas[r];
             peakPhis_out[r] = peakPhis[r];
             peakPol_out[r] = peakPol[r];
             peakSol_out[r] = peakSol_out[r];
@@ -536,7 +637,7 @@ int main(int argc, char **argv)
                 true_arrivalThetas_out[i] = this_true_theta*180/PI;
                 true_arrivalPhis_out[i] = this_true_phi*180/PI; 
             }
-            trueTheta_out = diff_true.Theta() * TMath::RadToDeg();
+            trueTheta_out = diff_true.Theta() * TMath::RadToDeg();  //Converted to match the zenith in the reconstruction calculation.
             truePhi_out = diff_true.Phi() * TMath::RadToDeg();
             trueR_out = diff_true.R();
             likelySol_out = likely_sol; //The output for this is a large negative number, even when likely_sol is hardcoded to zero.
