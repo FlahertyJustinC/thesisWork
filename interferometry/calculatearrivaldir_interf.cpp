@@ -28,7 +28,7 @@ UsefulAtriStationEvent *usefulAtriEvPtr;
 #include "helper.h"
 #include "tools.h"
 
-bool debugMode = false;
+bool debugMode = true;
 
 void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi, double &peakCorr) {
 
@@ -42,7 +42,9 @@ void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi,
     peakCorr = maxCorr;
     peakPhi = maxPhi;
     peakTheta = maxTheta;
-} 
+}
+
+
 
 //TODO: make radii and numScanned a little more dynamic so that it doesn't have to be hardcoded.  Maybe had it scan the rt_tables folder to have ti compile a list of radii that match the station, then defining the radii array using those values?  numScanned would simply just be the length of radii[]. Should also have it scan AFTER the station number is declared.  4/6/2024
 double radii[] = {
@@ -75,6 +77,118 @@ double calculateNoiseRMS(TGraph *gr, int sampleNumber=100) {
     }
     
     return noiseRms;
+}
+
+
+//Creating CSW function
+void calculateCSW(UsefulAtriStationEvent *usefulAtriEvPtr, std::vector<int> excludedChannels, double cutoffTime[16], double arrivalTimes[16], TGraph *cswVpolOut, TGraph *cswHpolOut) {
+    
+    const double dt = 0.5;
+    //Loop over excluded channels to form excluded pairs list
+    std::vector<int> cswExcludedChannelPairs;
+    for(int i=0; i<8; i++){
+        bool checkVpol = std::find(excludedChannels.begin(), excludedChannels.end(), i) != excludedChannels.end();
+        bool checkHpol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();
+        if (checkVpol or checkHpol) {
+            cswExcludedChannelPairs.push_back(i);
+        }
+
+    }
+    
+    //Make map of kept Vpol and kept HPol channels
+    map<int, TGraph*> mapWaveforms;
+    map<int, double> mins; //Map of the min time for each waveform.
+    map<int, double> maxes; // Map of the max time sfor ecah waveform.
+    double tMin=-1e100;  //Will represent the LARGEST min time across channels
+    double tMax=1e100;  //Will represent the SMALLEST max time across channels.
+    
+    double arrivalTimeMax = *max_element(arrivalTimes, arrivalTimes + 16);
+    double arrivalTimeMin = *min_element(arrivalTimes, arrivalTimes + 16);    
+    //Import waveforms and Apply time delays
+    TGraph *gr;
+    for (int i=0; i<16; i++) {
+        //Import waveform as Tgraph.
+        gr = usefulAtriEvPtr->getGraphFromRFChan(i);
+        //Crop to D-pulse only.
+        gr = FFTtools::cropWave(gr, gr->GetX()[0], cutoffTime[i]);
+        //Interpolate to 0.5 ns
+        gr = FFTtools::getInterpolatedGraph(gr,dt);        
+
+        for(int k=0; k<gr->GetN(); k++){
+            gr->GetX()[k] = gr->GetX()[k] - arrivalTimes[i] + arrivalTimeMax;
+        }
+        mapWaveforms[i] = gr;
+        mins[i] = gr->GetX()[0];
+        maxes[i] = gr->GetX()[gr->GetN()-1];
+        bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
+        if (not checkExcluded) {
+        // if (i == 0) {
+        //     //Initialize tMin and tMax to channel 0's values, then loop over the rest of the channels to find the true min and max.
+        //     tMin = mins[0];
+        //     tMax = maxes[0];
+        // }
+        // else {
+        //     //Loop over the remaining channels.  We want to store the LARGEST tMin and SMALLEST tMax.  These serve as our cropping windows so that the waveforms being summed are in the same time range.
+            if (tMin < mins[i]) {tMin = mins[i];}
+            if (tMax > maxes[i]) {tMax = maxes[i];}
+        }
+    }
+    
+    cout << "tMin = " << tMin << endl;
+    cout << "tMax = " << tMax << endl;
+    
+    //Initialize time and voltage arrays for the coherent sum.
+    const int nT = int((tMax-tMin)/dt);
+    // vector<double> timeCsw;
+    // vector<double> voltageCswVpol;    
+    // vector<double> voltageCswHpol;  
+    double timeCsw[nT];
+    double voltageCswVpol[nT];    
+    double voltageCswHpol[nT];      
+    
+    //Loop over waveforms and crop to the global tMin and tMax
+    for (int i=0; i<16; i++) {
+        mapWaveforms[i] = FFTtools::cropWave(mapWaveforms[i], tMin, tMax);
+    }
+    cout << "nT = " << nT << endl;
+    
+    //Now loop over the time bins to sum the waveforms
+    for (int j=0; j<nT; j++) {
+        //Initilize time bin
+        timeCsw[j] = tMin + j*dt;
+        // cout << "j = " << j << endl;
+        // timeCsw.push_back(tMin + j*dt);
+        // //Initialize voltage bin
+        double thisVpolVoltage=0;
+        double thisHpolVoltage=0;
+        for (int i=0; i<8; i++) {
+            bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
+            if (not checkExcluded) {
+                thisVpolVoltage+=mapWaveforms[i]->GetY()[j];
+                thisHpolVoltage+=mapWaveforms[i+8]->GetY()[j];
+            }
+        }
+        // cout << "thisVpolVoltage = " << thisVpolVoltage << endl;
+        // cout << "thisHpolVoltage = " << thisHpolVoltage << endl;
+        // voltageCswVpol.push_back(thisVpolVoltage);
+        // voltageCswHpol.push_back(thisHpolVoltage);
+        // voltageCswVpol[j] = thisVpolVoltage;
+        // voltageCswHpol[j] = thisHpolVoltage;        
+        // cout << "pushed!" << endl;
+        cswVpolOut->SetPoint(j, timeCsw[j], thisVpolVoltage);
+        cswHpolOut->SetPoint(j, timeCsw[j], thisHpolVoltage);
+    }
+    
+    cout << "Writing CSW to Tgraph" << endl;
+    // cout << "voltageCswVpol[0]) = " << voltageCswVpol[0] << endl;
+    // cout << "voltageCswHpol[0]) = " << voltageCswHpol[0] << endl;
+    // cout << "timeCsw[0]) = " << timeCsw[0] << endl;
+    // cswVpolOut = new TGraph(nT, timeCsw, voltageCswVpol);
+    // cswHpolOut = new TGraph(nT, timeCsw, voltageCswHpol);
+    cout << "Tgraph written!" << endl;
+    cout << "cswVpolOut->GetN() = " << cswVpolOut->GetN() << endl;
+    cout << "cswHpolOut->GetN() = " << cswHpolOut->GetN() << endl;
+    
 }
 
 int main(int argc, char **argv)
@@ -237,6 +351,11 @@ int main(int argc, char **argv)
     
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
     std::vector<int> excludedChannels;
+    if (settings1->DETECTOR_STATION==2){
+        cout << "Using station 2.  Excluding channels 1 and 3 in addition to the masking." << endl;
+        excludedChannels.push_back(1);  //Removing extra A2 channels as the D-pulse gets clipped.
+        excludedChannels.push_back(3); 
+    }    
     if (settings1->DETECTOR_STATION==4){
         cout << "Using station 4.  Excluding channels 0,4,8 in addition to the masking." << endl;
         excludedChannels.push_back(0);  //Testing removing a channel for A4 as only the R pulse makes it into the waveform.
@@ -335,8 +454,9 @@ int main(int argc, char **argv)
     printf("Input files loaded. Set up ray tracing business\n");
     printf("------------------\n");
     
-    for(Long64_t event=0;event<numEntries;event++) {
-    // for(Long64_t event=53530;event<53539;event++) {  //Debugging and running over events enar desired event to save time in loop.
+    // for(Long64_t event=0;event<numEntries;event++) {
+    // for(Long64_t event=53530;event<53539;event++) {  //Debugging and running over events near desired event to save time in loop.
+    for(Long64_t event=650;event<700;event++) {  //Debugging and running over events enar desired event to save time in loop.    
         fp->cd();
         eventTree->GetEntry(event);
         // if (rawAtriEvPtr->eventNumber != 53535){  //Test for A4 Run 6128
@@ -347,9 +467,9 @@ int main(int argc, char **argv)
         //     continue;
         // }
         
-        // if (rawAtriEvPtr->eventNumber != 679){  //Test for A2 Run 12559
-        //     continue;
-        // }        
+        if (rawAtriEvPtr->eventNumber != 679){  //Test for A2 Run 12559
+            continue;
+        }        
         
         
         if (not calibrated) {
@@ -386,8 +506,16 @@ int main(int argc, char **argv)
         std::map<int, TGraph*> interpolatedWaveforms;
         std::vector<double> noiseRms(16);
         
+        TGraph *grCswV;
+        TGraph *grCswH;
+        
+        //TCanvas for the raw waveform separated by channel
         TCanvas *c = new TCanvas("","", 1600, 1600);
         c->Divide(4,4);
+        
+        
+        
+      
         
         //TODO: Implement independent loop for double peak finder that checks parter VPol and HPol channels to find the cutoff times.
         for (int i=0; i<8; i++){
@@ -576,6 +704,8 @@ int main(int argc, char **argv)
             sprintf(title, "waveform.png");
             c->Print(title);
         }
+
+        
     
         std::map<int, double> snrs; // map of channels to SNRs
         for(int i=0; i<16; i++){
@@ -782,6 +912,92 @@ int main(int argc, char **argv)
         h_snr_out = the_snr_h;
 
         outTree->Fill();
+        
+        if (debugMode){
+            //TCanvas for the coherently summed waveform separated by VPol and HPol
+            TCanvas *cTimeshift = new TCanvas("","", 1600, 1600);
+            cTimeshift->Divide(4,4);    
+
+            double arrivalTimeMax = *max_element(arrivalTimes_out, arrivalTimes_out + 16);
+            double arrivalTimeMin = *min_element(arrivalTimes_out, arrivalTimes_out + 16);
+            
+            //Create array of channel pairs to exclude in the coherent sum
+            std::vector<int> cswExcludedChannelPairs;
+            for(int i=0; i<8; i++){
+                bool checkVpol = std::find(excludedChannels.begin(), excludedChannels.end(), i) != excludedChannels.end();
+                bool checkHpol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();
+                if (checkVpol or checkHpol) {
+                    cout << "Excluding channel pair " << i << endl;
+                    cswExcludedChannelPairs.push_back(i);
+                }
+                
+            }
+
+            for(int i=0; i<16; i++){
+                
+                //Check if channel is in the excluded channel list
+                bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
+
+                TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);
+                gr = FFTtools::cropWave(gr, gr->GetX()[0], cutoffTime[i]);
+
+                for(int k=0; k<gr->GetN(); k++){
+                    gr->GetX()[k] = gr->GetX()[k] - arrivalTimes_out[i] + arrivalTimeMax;
+                }
+
+                cout << "Ch " << i << " time[0] = " << gr->GetX()[0] << endl;
+                
+                gr = FFTtools::getInterpolatedGraph(gr,0.5);
+                // gr = FFTtools::getInterpolatedGraphFreqDom(gr,0.1);
+
+                cTimeshift->cd(i+1); gPad->SetGrid(1,1);
+                gr->Draw();
+                if (checkExcluded) {
+                    gr->SetLineColor(2);
+                }
+                char vTitle[500];
+                sprintf(vTitle,"Ch. %.2d", i);
+                gr->SetTitle(vTitle);            
+
+            }
+        
+
+            char title[500];
+            sprintf(title, "waveformTimeshift.png");
+            cTimeshift->Print(title);
+            
+            //Create coherent sum logic
+            TGraph *cswVpol = new TGraph();
+            TGraph *cswHpol = new TGraph();
+
+            calculateCSW(usefulAtriEvPtr, excludedChannels, cutoffTime, arrivalTimes_out, cswVpol, cswHpol);
+            
+            cout << "Sizes of csw TGraphs: "<< endl;
+            cout << "cswVpol->GetN() = " << cswVpol->GetN() << endl;
+            cout << "cswHpol->GetN() = " << cswHpol->GetN() << endl;
+            
+            cout << "Creating TCanvas for CSW" << endl;
+            TCanvas *cCsw = new TCanvas("","", 1600, 1600);
+            cCsw->Divide(1,2); 
+            
+            cCsw->cd(1); gPad->SetGrid(1,1);
+            cswVpol->Draw();
+            char vCswTitle[500];
+            sprintf(vCswTitle,"VPol");
+            cswVpol->SetTitle(vCswTitle);
+            
+            cCsw->cd(2); gPad->SetGrid(1,1);
+            cswHpol->Draw();
+            char hCswTitle[500];
+            sprintf(hCswTitle,"HPol");
+            cswHpol->SetTitle(hCswTitle);
+            
+            char cswTitle[500];
+            sprintf(cswTitle, "waveformCSW.png");
+            cCsw->Print(cswTitle);            
+            
+            
+        }                       
 
     
     }
