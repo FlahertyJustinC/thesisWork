@@ -7,7 +7,7 @@ A simple deconvoultion script that inverts the antenna and electronics response 
 
 Requirements:
 An installation of AraRoot and AraSim
-Symlinking of the AraSim/data directory into the directory of this script.  Whereever you have this script hosted, do the following:
+Symlinking of the AraSim/data directory into the directory of this script.  Wherever you have this script hosted, do the following:
 
 ln -s /path/to/AraSim/data .
 
@@ -47,6 +47,8 @@ ln -s /path/to/AraSim/data .
 #include "Tools.h"
 #include "Trigger.h"
 
+
+
 using namespace std;
 
 // #ifdef ARA_UTIL_EXISTS
@@ -56,6 +58,9 @@ ClassImp(UsefulIcrrStationEvent);
 ClassImp(UsefulAtriStationEvent);
 // #endif
 
+//Including my tools file.  Should update name to avoid confusion with Tools.h above.
+#include "tools.h"
+
 // #include "/users/PAS0654/jflaherty13/source/AraRoot/AraRoot_build/include/AraGeomTool.h"
 // #include "/users/PAS0654/jflaherty13/source/AraRoot/AraRoot_build/include/RayTraceCorrelator.h"
 // #include "/users/PAS0654/jflaherty13/source/AraRoot/AraRoot_build/include/UsefulAtriStationEvent.h"
@@ -63,6 +68,9 @@ ClassImp(UsefulAtriStationEvent);
 //TODO: Have outgoing pointer equal the incoming pointer by using a filler function to copy the original information, then I replace the voltage info with my deconvolved voltage.
 UsefulAtriStationEvent *usefulAtriEvPtr;
 UsefulAtriStationEvent *usefulAtriEvPtrOut;
+UsefulAtriStationEvent *usefulAtriCswPtrOut;
+
+bool debugMode = false;
 
 int main(int argc, char **argv)
 {
@@ -105,20 +113,35 @@ int main(int argc, char **argv)
     TTree *simSettingsTree;
     simSettingsTree=(TTree*) fp->Get("AraTree");
     bool dataLike = false;
-    //data like
+    bool calibrated;
+
+    
+    //Trying condition where it checks for usefulAtriStation branch and imports according to that.
     if(!simSettingsTree) { 
-        dataLike = true;
+        dataLike = true;            
         std::cerr << "Can't find AraTree.  Importing as real data.\n";
-        eventTree->SetBranchAddress("event",&rawAtriEvPtr);
+        TTree* atriExists=(TTree*) fp->Get("UsefulAtriStationEvent");
+        if (!atriExists) {
+            calibrated = false;
+            cout << "Can't find UsefulAtriStationEvent Tree.  Importing as uncalibrated." << endl;
+            eventTree->SetBranchAddress("event",&rawAtriEvPtr);
+        }
+        else {
+            calibrated = true;
+            eventTree->SetBranchAddress("UsefulAtriStationEvent", &usefulAtriEvPtr);
+        }
         double weight = 1;
     }
     // sim like
     else {
+        dataLike = false;
+        calibrated = true;
         std::cerr << "AraTree exists.  Importing as simulated data.\n";
         eventTree->SetBranchAddress("UsefulAtriStationEvent", &usefulAtriEvPtr);
         double weight;
         eventTree->SetBranchAddress("weight", &weight);   
     }
+    //End new import method    
         
     //Import vertex reco file
     printf("Opening reco file...\n");
@@ -129,6 +152,11 @@ int main(int argc, char **argv)
     double reco_arrivalThetas[16];
     double reco_arrivalPhis[16];
     double cutoffTime[16];
+    double arrivalTimes[16];
+    std::vector<int>* excludedChannels;    
+    
+    double v_snr;
+    double h_snr;
     
     // Testing using the true rf angles
     // vertexReco->SetBranchAddress("true_arrivalThetas", reco_arrivalThetas);
@@ -137,8 +165,12 @@ int main(int argc, char **argv)
     vertexReco->SetBranchAddress("reco_arrivalThetas", reco_arrivalThetas);
     vertexReco->SetBranchAddress("reco_arrivalPhis", reco_arrivalPhis);
     vertexReco->SetBranchAddress("cutoffTime", cutoffTime);  
-    
-    printf("Vertex Reco tree opened!\n");
+    vertexReco->SetBranchAddress("arrivalTimes", arrivalTimes);
+    vertexReco->SetBranchAddress("excludedChannels", &excludedChannels);    
+    vertexReco->SetBranchAddress("v_snr", &v_snr);
+    vertexReco->SetBranchAddress("h_snr", &h_snr);     
+    Long64_t numEntriesVertex=vertexReco->GetEntries();
+    cout << "Vertex Reco tree opened! Has " << numEntriesVertex << " entries!" << endl;;
     
     printf("------------------\n");
     printf("Input files loaded.  Setting up detector stuff.\n");
@@ -170,30 +202,70 @@ int main(int argc, char **argv)
     TFile *fpOut = TFile::Open(outfile_name, "RECREATE");
     if(!fpOut){ std::cerr<<"Cannot open output file "<<fpOut<<std::endl; return -1; }    
     
-     TTree *outTree = new TTree("eventTree", "eventTree");
+    TTree *outTree = new TTree("eventTree", "eventTree");
+    TTree *outTreeCsw = new TTree("coherentSum", "coherentSum");
     outTree->Branch("UsefulAtriStationEvent", &usefulAtriEvPtrOut);
+    outTreeCsw->Branch("UsefulAtriStationEvent", &usefulAtriCswPtrOut);
+    outTreeCsw->Branch("excludedChannels", &excludedChannels);
+    
+    //TODO: Make this tree for coherent sum and output the coherently summed E-field in both V and Hpol, along with a listing of the channels used in the sums. - JCF 4/26/2024
+    // TTree *coherentSumTree = new TTree("coherentSum", "coherentSum");
+    
+    //Creating new Tree in output file to store polarization reconstruction data
+    // TTree *outTreePol = new TTree("polReco", "polReco");
     
     //Need to grab lengths of voltage and time arrays from eventTree to initialize the branches in the outfile.
     Int_t fNumChannels; ///< The number of channels
     std::map< Int_t, std::vector <Double_t> > fTimesOut; ///< The times of samples
-    std::map< Int_t, std::vector <Double_t> > fVoltsOut; ///< The voltages of samples    
+    std::map< Int_t, std::vector <Double_t> > fVoltsOut; ///< The voltages of samples   
+    
+    //Initialize voltage and time arrays for the coherent sum.
+    Int_t fNumChannelsCsw = 2; ///< The number of channels (one for Vpol, one for Hpol)
+    std::map< Int_t, std::vector <Double_t> > fTimesCswOut; ///< The times of samples
+    std::map< Int_t, std::vector <Double_t> > fVoltsCswOut; ///< The voltages of samples      
     
     
     //Loop over events
-    for(Long64_t event=0;event<numEntries;event++) {
-        fp->cd();
-        eventTree->GetEntry(event);
-        vertexReco->GetEntry(event);
-    
+    // for(Long64_t event=0;event<numEntries;event++) {
+    for(Long64_t event=678;event<680; event++) {  //Debugging and running over events enar desired event to save time in loop.      
+    // for(Long64_t event=53530;event<53539;event++) {  //Debugging and running over events near desired event to save time in loop.    
         std::cout<<"Looking at event number "<<event<<std::endl;
+        fp->cd();
+
+        eventTree->GetEntry(event);
+
+        // if (rawAtriEvPtr->eventNumber != 53535){  //Test for A4 Run 6128
+        //     continue;
+        // }  
+
+        if (rawAtriEvPtr->eventNumber != 679){  //Test for A2 Run 12559
+            continue;
+        }      
+        // vertexReco->GetEntry(event);
+        vertexReco->GetEntry(0);  //For debugging purposes.  TODO: Change back!
         
-        if (dataLike) {
+        if (not calibrated) {
             cout << "Triggering datalike condition." << endl;
             delete usefulAtriEvPtr;         
             usefulAtriEvPtr = new UsefulAtriStationEvent(rawAtriEvPtr, AraCalType::kLatestCalib);
             
             
         }
+        
+      
+        
+        cout << "v_snr = " << v_snr << endl;
+        cout << "h_snr = " << h_snr << endl;
+        
+        if (v_snr < 8 and h_snr < 8) {
+            cout << "Event below SNR threshold.  Bypassing event." << endl;
+            // v_snr_out = the_snr_v;
+            // h_snr_out = the_snr_h;            
+            outTree->Fill();
+            continue;
+        }        
+        
+        
 
         int vertexRecoElectToRFChan[] = {14,2,6,10,12,0,4,8,15,3,7,11,13,1,5,9};
         
@@ -201,14 +273,11 @@ int main(int argc, char **argv)
 
         for(int i=0; i<16; i++){
             TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);  //This is where the code breaks for real data.
-            
             //Save initial and final time for truncating the padded arrays before output.
             double timeStart = gr->GetX()[0];
             double timeEnd = gr->GetX()[gr->GetN()-1];
-            
             //Interpolate graph to 0.5 ns resolution
             gr = FFTtools::getInterpolatedGraph(gr,0.5);
-            
             //Pad waveform to a factor of two. - JCF 9/27/2023
             if (gr->GetN() < settings1->NFOUR/2) {
                 gr = FFTtools::padWaveToLength(gr, settings1->NFOUR/2);
@@ -251,23 +320,23 @@ int main(int argc, char **argv)
             }            
             //TODO: Add step that centers the waveform about zero in time, for purposes of the fourier transform.  Then save this shift and reapply it to restore the time-domain information after the InvFFT.            
             double timeshift = time[waveform_bin/2];
-            cout << "timeshift = " << timeshift << endl;
+            // cout << "timeshift = " << timeshift << endl;
     
             double freq_tmp, heff, antenna_theta, antenna_phi;  // values needed for apply antenna gain factor and prepare fft, trigger
             
-            cout << "Importing angles." << endl;
+            // cout << "Importing angles." << endl;
             if (dataLike) {
                 //Import RF angles use RF channel mapping
-                antenna_theta = reco_arrivalThetas[i]*180/PI;
-                antenna_phi = reco_arrivalPhis[i]*180/PI;
+                antenna_theta = reco_arrivalThetas[i];//*180/PI;
+                antenna_phi = reco_arrivalPhis[i];//*180/PI;
             }
             else {
                 //Import RF angles using electric channel mapping
-                antenna_theta = reco_arrivalThetas[vertexRecoElectToRFChan[i]]*180/PI;
-                antenna_phi = reco_arrivalPhis[vertexRecoElectToRFChan[i]]*180/PI;
+                antenna_theta = reco_arrivalThetas[vertexRecoElectToRFChan[i]];//*180/PI;
+                antenna_phi = reco_arrivalPhis[vertexRecoElectToRFChan[i]];//*180/PI;
             }
-            cout << "antenna_theta = " << antenna_theta << endl;
-            cout << "antenna_phi = " << antenna_phi << endl;                    
+            // cout << "antenna_theta = " << antenna_theta << endl;
+            // cout << "antenna_phi = " << antenna_phi << endl;                    
             
             //Calculate polarization vector that inverts the polarization factor (makes dot products equal to one)
             double newPol_vectorX = -sin(antenna_phi*PI/180);
@@ -284,7 +353,7 @@ int main(int argc, char **argv)
 
             double dF_Nnew;
 
-            double nice = 1.79;
+            double nice = 1.79;  //TODO: Have this use the n(z) in the icemodel. 4/30/2023
 
 
             int pol_ant;
@@ -377,13 +446,6 @@ int main(int argc, char **argv)
                     V_forfft[2*n] = 0;
                     V_forfft[2*n+1] = 0;
                 }                   
-                //Apply homemade butterworth filter of the fourth order
-                // double freqMin = 150*1e6;
-                // double freqMax = 300*1e6;
-                
-                // //Trying user inputted butterworth filter
-                // double freqMin = atof(argv[2])*1e6;
-                // double freqMax = atof(argv[3])*1e6;
   
                 
                 double weight = 1;  // Setting initial weight to one, then applying bandpass.  Weight is then multiplied by signal in this bin.
@@ -407,14 +469,8 @@ int main(int argc, char **argv)
                 }                
                 // continue;
             }                 
-            Tools::SincInterpolation(Nnew, T_forfft, V_forfft, settings1->NFOUR / 2, T_forint, volts_forint);
-            // Tools::SincInterpolation(Nnew, T_forfft, V_forfft, waveform_bin, T_forint, volts_forint);      
-            
-            //TODO: Restore time shift in time domain
-            // T_forint += timeshift;
-            // for (int i = 0; i < sizeof(T_forint) / sizeof(T_forint[0]); i++) {
-            //   T_forint[i] += timeshift;
-            // }                 
+            Tools::SincInterpolation(Nnew, T_forfft, V_forfft, settings1->NFOUR / 2, T_forint, volts_forint);   
+                           
             
             //Now write deconvolved voltage data to file.
             for (int n = 0; n < settings1->NFOUR / 2; n++)
@@ -426,20 +482,142 @@ int main(int argc, char **argv)
                 usefulAtriEvPtrOut->fTimes[elecChan].push_back(T_forint[n]);                
             }
             usefulAtriEvPtrOut->stationId = settings1->DETECTOR_STATION;
+            usefulAtriCswPtrOut->stationId = settings1->DETECTOR_STATION;
             
         } //channel loop
         usefulAtriEvPtrOut->eventNumber = usefulAtriEvPtr->eventNumber;
         usefulAtriEvPtrOut->unixTime = usefulAtriEvPtr->unixTime;
-        cout << "usefulAtriEvPtr->unixTime = " << usefulAtriEvPtr->unixTime << endl;
-        cout << "usefulAtriEvPtrOut->unixTime = " << usefulAtriEvPtrOut->unixTime << endl;
+        // cout << "usefulAtriEvPtr->unixTime = " << usefulAtriEvPtr->unixTime << endl;
+        // cout << "usefulAtriEvPtrOut->unixTime = " << usefulAtriEvPtrOut->unixTime << endl;
         //Assign timestamp values to help identify calpulsers
         usefulAtriEvPtrOut->timeStamp = usefulAtriEvPtr->timeStamp;
         // Assign triggerInfo values to identify RF and software triggers.
         for (int bit = 0; bit < 4; bit++) {
             usefulAtriEvPtrOut->triggerInfo[bit] = usefulAtriEvPtr->triggerInfo[bit];
-        }
+        }    
+        
+        usefulAtriCswPtrOut->eventNumber = usefulAtriEvPtr->eventNumber;
+        usefulAtriCswPtrOut->unixTime = usefulAtriEvPtr->unixTime;
+        // cout << "usefulAtriEvPtr->unixTime = " << usefulAtriEvPtr->unixTime << endl;
+        // cout << "usefulAtriCswPtrOut->unixTime = " << usefulAtriCswPtrOut->unixTime << endl;
+        //Assign timestamp values to help identify calpulsers
+        usefulAtriCswPtrOut->timeStamp = usefulAtriEvPtr->timeStamp;
+        // Assign triggerInfo values to identify RF and software triggers.
+        for (int bit = 0; bit < 4; bit++) {
+            usefulAtriCswPtrOut->triggerInfo[bit] = usefulAtriEvPtr->triggerInfo[bit];
+        }            
+        
+        
         fpOut->cd();
         outTree->Fill();
+        
+        //Plotting deconvolved Waveform before CSW
+        //TCanvas for the coherently summed waveform separated by VPol and HPol
+        if (debugMode) {
+            TCanvas *cTimeshift = new TCanvas("","", 1600, 1600);
+            cTimeshift->Divide(4,4);          
+
+            //Create array of channel pairs to exclude in the coherent sum
+            std::vector<int> cswExcludedChannelPairs;
+            for(int i=0; i<8; i++){
+                bool checkVpol = std::find((*excludedChannels).begin(), (*excludedChannels).end(), i) != (*excludedChannels).end();
+                bool checkHpol = std::find((*excludedChannels).begin(), (*excludedChannels).end(), i+8) != (*excludedChannels).end();
+                if (checkVpol or checkHpol) {
+                    cout << "Excluding channel pair " << i << endl;
+                    cswExcludedChannelPairs.push_back(i);
+                }
+
+            }        
+            double arrivalTimeMax = *max_element(arrivalTimes, arrivalTimes + 16);
+            double arrivalTimeMin = *min_element(arrivalTimes, arrivalTimes + 16);        
+
+            for(int i=0; i<16; i++){
+
+                //Check if channel is in the excluded channel list
+                bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
+
+                TGraph *gr = usefulAtriEvPtrOut->getGraphFromRFChan(i);
+                gr = FFTtools::cropWave(gr, gr->GetX()[0], cutoffTime[i]);
+
+                for(int k=0; k<gr->GetN(); k++){
+                    gr->GetX()[k] = gr->GetX()[k] - arrivalTimes[i] + arrivalTimeMax;
+                }
+
+                // cout << "Ch " << i << " time[0] = " << gr->GetX()[0] << endl;
+
+                gr = FFTtools::getInterpolatedGraph(gr,0.5);
+                // gr = FFTtools::getInterpolatedGraphFreqDom(gr,0.1);
+
+                cTimeshift->cd(i+1); gPad->SetGrid(1,1);
+                gr->Draw();
+                if (checkExcluded) {
+                    gr->SetLineColor(2);
+                }
+                char vTitle[500];
+                sprintf(vTitle,"Ch. %.2d", i);
+                gr->SetTitle(vTitle);            
+
+            }
+
+
+            char title[500];
+            sprintf(title, "waveformDeconvolved.png");
+            cTimeshift->Print(title);  
+        }
+        
+        //Plotting CSW deconvolved waveform
+        //Create coherent sum logic
+        TGraph *cswVpol = new TGraph();
+        TGraph *cswHpol = new TGraph();
+
+        calculateCSW(usefulAtriEvPtrOut, (*excludedChannels), cutoffTime, arrivalTimes, cswVpol, cswHpol);
+
+        if (debugMode) {
+            cout << "Sizes of csw TGraphs: "<< endl;
+            cout << "cswVpol->GetN() = " << cswVpol->GetN() << endl;
+            cout << "cswHpol->GetN() = " << cswHpol->GetN() << endl;
+
+            cout << "Creating TCanvas for CSW" << endl;
+            TCanvas *cCsw = new TCanvas("","", 1600, 1600);
+            cCsw->Divide(1,2); 
+
+            cCsw->cd(1); gPad->SetGrid(1,1);
+            cswVpol->Draw();
+            char vCswTitle[500];
+            sprintf(vCswTitle,"VPol");
+            cswVpol->SetTitle(vCswTitle);
+
+            cCsw->cd(2); gPad->SetGrid(1,1);
+            cswHpol->Draw();
+            char hCswTitle[500];
+            sprintf(hCswTitle,"HPol");
+            cswHpol->SetTitle(hCswTitle);
+
+            char cswTitle[500];
+            sprintf(cswTitle, "waveformCSW.png");
+            cCsw->Print(cswTitle);   
+        }
+        
+        for (int ch=0; ch<16; ch++) {
+            for (int i=0; i<cswVpol->GetN(); i++){
+                int elecChan = AraGeomTool::Instance()->getElecChanFromRFChan(ch, settings1->DETECTOR_STATION);
+                //Vpol
+                if (ch<8) {
+                    usefulAtriCswPtrOut->fVolts[elecChan].push_back(cswVpol->GetY()[i]);
+                    usefulAtriCswPtrOut->fTimes[elecChan].push_back(cswVpol->GetX()[i]);
+                }
+                //HPol
+                else {
+                    usefulAtriCswPtrOut->fVolts[elecChan].push_back(cswHpol->GetY()[i]);
+                    usefulAtriCswPtrOut->fTimes[elecChan].push_back(cswHpol->GetX()[i]);
+                }
+            }
+        }        
+        fpOut->cd();
+        outTreeCsw->Fill();
+
+        usefulAtriCswPtrOut->fVolts.clear();
+        usefulAtriCswPtrOut->fTimes.clear();        
         usefulAtriEvPtrOut->fVolts.clear();
         usefulAtriEvPtrOut->fTimes.clear();
     } //event loop
@@ -448,5 +626,12 @@ int main(int argc, char **argv)
     fpOut->Close();
     fp->Close();
     fp2->Close();
+    delete fpOut;
+    delete fp;
+    delete fp2;
+    
+    cout << "**************************************************" << endl;
+    cout << "Output written to:\t " <<outfile_name<<endl;    
+    cout << "**************************************************" << endl;
     
 } //main    
