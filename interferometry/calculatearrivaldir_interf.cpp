@@ -132,6 +132,8 @@ int main(int argc, char **argv)
     double true_arrivalThetas_out[16];
     double true_arrivalPhis_out[16];
     double cutoffTime[16]; 
+    double directPeakTimes[16];
+    double refPeakTimes[16];
     
     int eventNumber;
     int unixTime;
@@ -178,6 +180,8 @@ int main(int argc, char **argv)
     
     //This should work for any double-peak event, as simulated events can show D and R solution in a large enough trigger window.
     outTree->Branch("cutoffTime", &cutoffTime, "cutoffTime[16]/D");  
+    outTree->Branch("directPeakTimes", &directPeakTimes, "directPeakTimes[16]/D");  
+    outTree->Branch("refPeakTimes", &refPeakTimes, "refPeakTimes[16]/D");  
 
     printf("------------------\n");
     printf("Output File Setup Complete. Begin correlator setup.\n");
@@ -298,7 +302,16 @@ int main(int argc, char **argv)
     printf("Input files loaded. Set up ray tracing business\n");
     printf("------------------\n");
     
-    for(Long64_t event=0;event<numEntries;event++) {
+    //Loop over events
+    int loopedEntries;
+    if (debugMode) {
+        loopedEntries=1;
+    }
+    else {
+        loopedEntries=numEntries;
+    }
+    
+    for(Long64_t event=0;event<loopedEntries;event++) {
     // for(Long64_t event=53530;event<53539;event++) {  //Debugging and running over events near desired event to save time in loop.
     // for(Long64_t event=650;event<700;event++) {  //Debugging and running over events enar desired event to save time in loop.    
         fp->cd();
@@ -428,11 +441,22 @@ int main(int argc, char **argv)
                 }
                 cutoffTime[i] = firstPeak + (secondPeak-firstPeak)/2;
                 cutoffTime[i+8] = firstPeak + (secondPeak-firstPeak)/2;
+                
+                //Export peak times to outTree.  Assuming no birefringence at the moment, so V and H signal arrive at the same time.  TODO: Include birefringence in this. 5/14/2024
+                directPeakTimes[i] = primaryHitTimes[0];
+                directPeakTimes[i+8] = primaryHitTimes[0];
+                refPeakTimes[i] = primaryHitTimes[1];
+                refPeakTimes[i+8] = primaryHitTimes[1];                
             }
             else {
                 cout << "Assuming single-peak signal." << endl;                
                 cutoffTime[i] = grIntV->GetX()[grIntV->GetN() - 1];
                 cutoffTime[i+8] = grIntH->GetX()[grIntH->GetN() - 1];
+                
+                directPeakTimes[i] = primaryHitTimes[0];
+                directPeakTimes[i+8] = primaryHitTimes[0];
+                refPeakTimes[i] = cutoffTime[i];
+                refPeakTimes[i+8] = cutoffTime[i+8];                    
             }
             if (debugMode){
                 //Draw Vpol
