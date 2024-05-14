@@ -1478,7 +1478,8 @@ def findHilbertForLargerChannel(primaryVoltage, secondaryVoltage, primaryTime, s
         print("Solution choice unknown.  Must choose either direct or reflected/refracted solution.  Exiting.")
         sys.exit()        
     envelopePeakPrimary = max(amplitude_envelope_rf_Primary)
-    peakTimePrimary = primaryTime[np.where(amplitude_envelope_rf_Primary == envelopePeakPrimary)]
+    # print("envelopePeakPrimary = " + str(envelopePeakPrimary))
+    peakTimePrimary = primaryTime[np.where(amplitude_envelope_rf_Primary == envelopePeakPrimary)].mean() #Averaging in case of flat envelope.
     
     #Calculate Hilbert peak of secondary channel
     amplitude_envelope_rf_Secondary = getHilbertEnvelopeSingleChannel(secondaryVoltage)
@@ -1504,6 +1505,10 @@ def findHilbertForLargerChannel(primaryVoltage, secondaryVoltage, primaryTime, s
         print("Secondary envelope empty.  Setting envelopePeak to zero.")
         envelopePeakSecondary=0
         peakTimeSecondary = 0
+        # print(envelopePeakPrimary)
+        # print(envelopePeakSecondary)
+        # print(peakTimePrimary)
+        # print(peakTimeSecondary)
     
     return envelopePeakPrimary, envelopePeakSecondary, peakTimePrimary, peakTimeSecondary
 
@@ -1721,17 +1726,21 @@ def plotDeconvolvedWaveform(usefulEvent, vertexReco, timeMarkers=None, runNumber
 
 
 
-def plotWaveform(usefulEvent, FFT=False, channelPair=None, sharex=True, sharey=True):
+def plotWaveform(usefulEvent, FFT=False, channelPair=None, sharex=True, sharey=True, csw=False):
     import ROOT
     import matplotlib.pyplot as plt
     import numpy
     # from scipy.signal import hilbert
-    if (channelPair is None):
+    if (csw):
+        fig, ax = plt.subplots(nrows=2,ncols=1, figsize=(12,12),sharex=sharex, sharey=sharey)
+        channels = [0, 8]      
+    elif (channelPair is None):
         fig, ax = plt.subplots(nrows=4,ncols=4, figsize=(12,12),sharex=sharex, sharey=sharey)
         channels = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
     elif (np.isscalar(channelPair)):
         fig, ax = plt.subplots(nrows=2,ncols=1, figsize=(12,12),sharex=sharex, sharey=sharey)
         channels = [channelPair, channelPair+8]
+      
     if (FFT):
         fig.supxlabel("Frequency [MHz]")
         fig.supylabel("Spectral Density [mV $^2$ / MHz]")
@@ -1746,10 +1755,163 @@ def plotWaveform(usefulEvent, FFT=False, channelPair=None, sharex=True, sharey=T
             fft, freq, dT = doFFT(time, voltage)
             psd = np.abs(fft**2)
             voltage, time = psd, freq
-            
+
         axes.set_title("Channel " + str(ch))
         axes.plot(time,voltage, alpha=0.7, label='Waveform') 
         
     plt.suptitle("Event Number: " +str(eventNumber))
    
+    return fig, ax
+
+#TODO: Write a simplified hilbert peak function that doesn't use any deconvolution or gain balancing.
+def peakHilbertSimple(usefulEvent, tolerance=10, timeShift=0, debug=False, solution='D'):
+    #TODO: Update this to find peak from HPol when HPol is larger than VPol, or by user command (some kind off flag)
+    import ROOT
+    from scipy.signal import hilbert
+    
+    #Initialize arrays
+    powerV = np.zeros(8)
+    powerH = np.zeros(8)
+    power = np.zeros(16)
+    passCutTime = np.zeros(16)
+    snrsOut = np.zeros(16)
+    passTimeCut = np.ones((16)).astype(bool)   
+    
+    #Initiliaze arrays for power pre noise subtraction and noise.
+    powerVPreNoiseSubtraction = np.zeros(8)
+    powerVNoiseFromWaveform = np.zeros(8)
+    powerHPreNoiseSubtraction = np.zeros(8)
+    powerHNoiseFromWaveform = np.zeros(8)
+    powerPreNoiseSubtraction = np.zeros(16)
+    powerNoiseFromWaveform = np.zeros(16)
+    startTime = np.zeros(16)
+    endTime = np.zeros(16)
+    peakTime = np.zeros(16)
+    hilbertPeak = np.zeros(16)
+    peakWindows = np.zeros((8,2))
+    
+    #TODO: Have this loop over channel pairs instead, so that we may find if VPol or HPol is stronger.    
+    for channelPair in range(8):
+        voltageVpol, timeVpol = extractChannelWaveform(usefulEvent, channelPair)
+        voltageHpol, timeHpol = extractChannelWaveform(usefulEvent, channelPair+8)
+        
+        # print(voltageVpol[:50])
+        
+        #Calculate Hilbert envelope of waveforms
+        amplitude_envelope_rf_Vpol = getHilbertEnvelopeSingleChannel(voltageVpol)
+        amplitude_envelope_rf_Hpol = getHilbertEnvelopeSingleChannel(voltageHpol)         
+        
+        
+        #Find which channel is stronger.
+        peakVpol = max(amplitude_envelope_rf_Vpol)
+        peakHpol = max(amplitude_envelope_rf_Hpol)
+        # print("Ch pair " + str(channelPair) + " | " + str(peakVpol) + " / " + str(peakHpol))
+        
+        deConv_t_Vpol, deConv_v_Vpol = timeVpol, voltageVpol
+        deConv_t_Hpol, deConv_v_Hpol = timeHpol, voltageHpol        
+    
+        cutoffTimePair = np.array([1e100,1e100]) #Trick to make the cutofftime get ignored for D Pulse
+        solution='D'
+        
+        if (peakVpol > peakHpol):
+            # print("V-Primary")
+            primaryVoltage = deConv_v_Vpol
+            secondaryVoltage = deConv_v_Hpol
+            primaryTime = deConv_t_Vpol
+            secondaryTime = deConv_t_Hpol
+            # cutoffTimePair = np.array([cutoffTime[channelPair],cutoffTime[channelPair+8]])
+            primaryPolarization = 0
+            hilbertPeak[channelPair], hilbertPeak[channelPair+8], peakTime[channelPair], peakTime[channelPair+8] = findHilbertForLargerChannel(primaryVoltage, secondaryVoltage, primaryTime, secondaryTime, cutoffTimePair, primaryPolarization, solution=solution, tolerance=tolerance, timeShift=timeShift)
+        else:
+            # print("H-Primary")
+            primaryVoltage = deConv_v_Hpol
+            secondaryVoltage = deConv_v_Vpol
+            primaryTime = deConv_t_Hpol
+            secondaryTime = deConv_t_Vpol
+            # cutoffTimePair = np.array([cutoffTime[channelPair+8],cutoffTime[channelPair]])
+            primaryPolarization = 1
+            hilbertPeak[channelPair+8], hilbertPeak[channelPair], peakTime[channelPair+8], peakTime[channelPair] = findHilbertForLargerChannel(primaryVoltage, secondaryVoltage, primaryTime, secondaryTime, cutoffTimePair, primaryPolarization, solution=solution, tolerance=tolerance, timeShift=timeShift)
+           
+    # print("primaryVoltage = " + str(primaryVoltage))    
+    # print("secondaryVoltage = " + str(secondaryVoltage))  
+    # print("primaryTime = " + str(primaryTime))    
+    # print("secondaryTime = " + str(secondaryTime))     
+    
+    return hilbertPeak, peakTime
+
+def powerFromWaveformSimple(usefulEvent, peakTime, tBelow=20, tAbove=60):
+    import ROOT
+    from scipy.signal import hilbert
+    power = np.zeros(16)
+    for channelPair in range(8):
+        voltageVpol, timeVpol = extractChannelWaveform(usefulEvent, channelPair)
+        voltageHpol, timeHpol = extractChannelWaveform(usefulEvent, channelPair+8)
+        
+        tMinV = peakTime[channelPair] - tBelow
+        tMaxV = peakTime[channelPair] + tAbove
+        tMinH = peakTime[channelPair+8] - tBelow
+        tMaxH = peakTime[channelPair+8] + tAbove
+        
+        timeMaskV = (timeVpol > tMinV) * (timeVpol < tMaxV)
+        timeMaskH = (timeHpol > tMinH) * (timeHpol < tMaxH)
+        
+        power[channelPair] = np.sum(voltageVpol[timeMaskV]**2)
+        power[channelPair+8] = np.sum(voltageHpol[timeMaskH]**2)
+        
+        
+    return power
+
+def plotWaveformMarkPeaks(usefulEvent, timeMarkers=None, runNumber=None, station = None, Hilbert=False, channelPair=None, deconvolution=True, extraInfo = '', showPeaks = False, tolerance=10, rawEvent=None, noiseEnvelope=None, noiseRms=None, noiseReduction=False, configuration=None):
+    import ROOT
+    import matplotlib.pyplot as plt
+    import numpy
+    # from scipy.signal import hilbert
+    if (channelPair is None):
+        fig, ax = plt.subplots(nrows=4,ncols=4, figsize=(12,12),sharex=True, sharey=True)
+        channels = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    elif (np.isscalar(channelPair)):
+        fig, ax = plt.subplots(nrows=2,ncols=1, figsize=(12,12),sharex=True, sharey=True)
+        channels = [channelPair, channelPair+8]
+    fig.supxlabel("Time [ns]")
+    fig.supylabel("Voltage [mV]")
+    eventNumber = usefulEvent.eventNumber
+    
+    if (showPeaks):
+        peaks, peakTimes = peakHilbertSimple(usefulEvent)
+    
+    for ch, axes in zip(channels, ax.flatten()):
+        voltage, time = extractChannelWaveform(usefulEvent, ch)
+        deConv_t = time
+        deConv_v = voltage
+
+            
+        axes.set_title("Channel " + str(ch))
+        axes.plot(deConv_t,deConv_v, alpha=0.7, label='Waveform')
+        if (showPeaks):
+            axes.axvline(peakTimes[ch], linestyle='--', color='black', label=peakTimes[ch])
+            axes.axhline(peaks[ch], linestyle=':', color='green', label=peaks[ch])
+        if (Hilbert):
+            envelope = getHilbertEnvelopeSingleChannel(deConv_v)
+            axes.plot(deConv_t,envelope, alpha=0.7, label="Hilbert Envelope")    
+    
+    if (station is not None):
+        stationTitle = "Station: " + str(station) + " | "
+    else:
+        stationTitle = ''
+    if (runNumber is not None):
+        runTitle = "Run Number: " + str(runNumber) + " | "
+    else:
+        runTitle = ''
+        
+    psi = calculatePsiAndR(peaks**2)[1][0]
+    # plt.suptitle(stationTitle + runTitle + "Event Number: " +str(eventNumber) + extraInfo)
+    plt.suptitle("psi = " + str(psi))
+   
+    if (timeMarkers is not None):
+        if (numpy.isscalar(timeMarkers)):
+            for ch, axes in zip(channels, ax.flatten()):
+                axes.axvline(timeMarkers, color='black', linestyle='--')
+        elif (len(timeMarkers)==16):
+            for ch, axes in zip(channels, ax.flatten()):
+                axes.axvline(timeMarkers[ch], color='black', linestyle='--')    
     return fig, ax

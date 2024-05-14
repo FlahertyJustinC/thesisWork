@@ -82,34 +82,7 @@ int main(int argc, char **argv)
     if(!fpOut){ std::cerr<<"Cannot open output file "<<fpOut<<std::endl; return -1; }
 
     TTree *outTree = new TTree("eventTree", "eventTree");
-    outTree->Branch("UsefulAtriStationEvent", &usefulAtriEvPtrOut);
-    
-    double bestTheta_out;
-    double bestPhi_out;
-    double bestCorr_out;
-    double bestR_out;
-    int bestSol_out;
-    double reco_arrivalThetas_out[16];
-    double reco_arrivalPhis_out[16];
-
-    double trueTheta_out;
-    double truePhi_out;
-    double trueR_out;
-    int likelySol_out;
-    double true_arrivalThetas_out[16];
-    double true_arrivalPhis_out[16];
-    double cutoffTime[16];    
-    
-    int eventNumber;
-    int unixTime;
-    int unixTimeUs;
-    int timeStamp;    
-
-    double weight_out;
-    double weight;
-    double snrs_out[16];
-    double v_snr_out;
-    double h_snr_out;
+    outTree->Branch("UsefulAtriStationEvent", &usefulAtriEvPtrOut);  
     
     int passedEventCounter = 0;
 
@@ -127,7 +100,7 @@ int main(int argc, char **argv)
     //Import eventTree
     TTree *eventTree = (TTree*) fp->Get("eventTree");
     printf("Event tree opened!\n");
-    if(!eventTree) { std::cerr << "Can't find eventTree\n"; return -1; }
+    if(!eventTree) { std::cerr << "Can't find eventTree\n"; exit(0); return -1; }
     Long64_t numEntries=eventTree->GetEntries();
     cout << "eventTree has " << numEntries << " entries." << endl;
     RawAtriStationEvent *rawAtriEvPtr=0;
@@ -137,24 +110,9 @@ int main(int argc, char **argv)
     settings1->ReadFile(setupfile);
     IceModel *icemodel = new IceModel(settings1->ICE_MODEL + settings1->NOFZ*10,settings1->CONSTANTICETHICKNESS * 1000 + settings1->CONSTANTCRUST * 100 + settings1->FIXEDELEVATION * 10 + 0,settings1->MOOREBAY);// creates Antarctica ice model
     Detector *detector = new Detector(settings1, icemodel, setupfile);
-    // Report *report = new Report(detector, settings1);
-    // RaySolver *raySolver = new RaySolver;
-    //End attempt at importing setup parameters    
-    
-
-    // printf("------------------\n");
-    // printf("Begin looping events.\n");
-    // printf("------------------\n");    
-    
     
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
     std::vector<int> excludedChannels;
-    // if (settings1->DETECTOR_STATION==4){
-    //     cout << "Using station 4.  Excluding channels 0,4,8 in addition to the masking." << endl;
-    //     excludedChannels.push_back(0);  //Testing removing a channel for A4 as only the R pulse makes it into the waveform.
-    //     excludedChannels.push_back(4); 
-    //     excludedChannels.push_back(8);
-    // }
     for (int i=0; i<16; i++){
         // cout << "detector->GetTrigMasking(i) = " << detector->GetTrigMasking(i) << endl;
         if (not detector->GetTrigMasking(i)){
@@ -165,35 +123,20 @@ int main(int argc, char **argv)
     
     // Check if sim or real data file by checking for existence of AraTree
     TTree *simSettingsTree;
-    TTree *simTree;
     simSettingsTree=(TTree*) fp->Get("AraTree");
     bool dataLike;
     Event *eventPtr = 0; // it is apparently incredibly important that this be initialized to zero...
-    // Report *reportPtr = 0; 
     //data like
     if(!simSettingsTree) { 
         dataLike = true;            
         std::cerr << "Can't find AraTree.  Importing as real data.\n";
         eventTree->SetBranchAddress("event",&rawAtriEvPtr);
-        weight = 1;
     }
     // sim like
     else {
         dataLike = false;
         std::cerr << "AraTree exists.  Importing as simulated data.\n";
         eventTree->SetBranchAddress("UsefulAtriStationEvent", &usefulAtriEvPtr);
-        weight;
-        eventTree->SetBranchAddress("weight", &weight);
-        // Detector *detector = 0;
-        simSettingsTree=(TTree*) fp->Get("AraTree");
-        if(!simSettingsTree) { std::cerr << "Can't find AraTree\n"; return -1; }
-        simSettingsTree->SetBranchAddress("detector", &detector);
-        simSettingsTree->GetEntry(0);
-
-        simTree=(TTree*) fp->Get("AraTree2");
-        if(!simTree) { std::cerr << "Can't find AraTree2\n"; return -1; }
-        simTree->SetBranchAddress("event", &eventPtr);
-        // simTree->SetBranchAddress("report", &reportPtr);
     }
 
     printf("------------------\n");
@@ -201,9 +144,7 @@ int main(int argc, char **argv)
     printf("------------------\n");
     
     for(Long64_t event=0;event<numEntries;event++) {
-    // for(Long64_t event=0;event<100;event++) {        
-    // for(Long64_t event=53534;event<53634;event++) {        
-    // for(Long64_t event=0;event<10;event++) {  //Debugging and running on first few events.
+    // for(Long64_t event=0;event<500;event++) {    
         //Initialize counter for channels with double-peak
         int doublePeakCounter=0;
         
@@ -232,19 +173,13 @@ int main(int argc, char **argv)
             delete usefulAtriEvPtr;  //Need to delete the initialized pointer in order to create a new one.
             usefulAtriEvPtr = new UsefulAtriStationEvent(rawAtriEvPtr, AraCalType::kLatestCalib);
         }
-        else {
-            // cout << "Triggering sim-like condition." << endl;
-            simTree->GetEntry(event);
-        }
         // cout << "*";
-        std::cout<<"Event number: \t"<<event<<std::endl;        
+        if (event%10 == 0) {
+            std::cout<<"Event number: \t"<<event<<std::endl;        
+        }
         
-        //TODO: The double peak finder and cropping isn't playing nice with a simulated event with only one peak.
         std::map<int, TGraph*> interpolatedWaveforms;
         std::vector<double> noiseRms(16);
-        
-        TCanvas *c = new TCanvas("","", 1600, 1600);
-        c->Divide(4,4);
         
         //TODO: Implement independent loop for double peak finder that checks parter VPol and HPol channels to find the cutoff times.
         for (int i=0; i<8; i++){
@@ -318,134 +253,18 @@ int main(int argc, char **argv)
                     firstPeak = primaryHitTimes[1];
                     secondPeak = primaryHitTimes[0];
                 }
-                cutoffTime[i] = firstPeak + (secondPeak-firstPeak)/2;
-                cutoffTime[i+8] = firstPeak + (secondPeak-firstPeak)/2;
                 
                 //Add condition where if the primary channel isn't in the excluded channel list, it adds to the double-peak channel counter
                 bool channelNotExcluded = std::find(excludedChannels.begin(), excludedChannels.end(), primaryChannel) == excludedChannels.end();
-                // cout << "PrimaryChannel not excluded = " << channelNotExcluded << endl;
                 if (channelNotExcluded) {
                     doublePeakCounter++;
-                    // cout << "doublePeakCounter = " << doublePeakCounter << endl;
                 }
             }
-            else {
-                // cout << "Assuming single-peak signal." << endl;                
-                cutoffTime[i] = grIntV->GetX()[grIntV->GetN() - 1];
-                cutoffTime[i+8] = grIntH->GetX()[grIntH->GetN() - 1];
-            }
-            if (debugMode){
-                //Draw Vpol
-                c->cd(i+1); gPad->SetGrid(1,1);
-                grV->Draw();
-                char vTitle[500];
-                sprintf(vTitle,"Ch. %.2d", i);
-                grV->SetTitle(vTitle);
-                TLine *l1v = new TLine(vvHitTimes[0], -1500, vvHitTimes[0], 1500);
-                l1v->SetLineColorAlpha(kBlue, 1);
-                l1v->Draw();    
-                TLine *l2v = new TLine(vvHitTimes[1], -1500, vvHitTimes[1], 1500);
-                l2v->SetLineColorAlpha(kRed, 1);
-                l2v->Draw();    
-                TLine *l3v = new TLine(-5000, vvPeakIntPowers[0], 5000, vvPeakIntPowers[0]);
-                l3v->SetLineColorAlpha(kBlue, 1);
-                l3v->Draw();    
-                TLine *l4v = new TLine(-5000, vvPeakIntPowers[1], 5000, vvPeakIntPowers[1]);
-                l4v->SetLineColorAlpha(kRed, 1);
-                l4v->Draw();  
-                TLine *l5v = new TLine(-5000, peakThresholdV, 5000, peakThresholdV);
-                l5v->SetLineColorAlpha(kGreen, 1);
-                l5v->Draw(); 
-                TLine *l6v = new TLine(cutoffTime[i], -1500, cutoffTime[i], 1500);
-                // l6->SetLineColorAlpha(kPink, 1);
-                l6v->SetLineStyle(kDashed);
-                l6v->Draw();
-
-                //Draw Hpol
-                c->cd(i+1+8); gPad->SetGrid(1,1);
-                grH->Draw();
-                char hTitle[500];
-                sprintf(hTitle,"Ch. %.2d", i+8);
-                grH->SetTitle(hTitle);
-                TLine *l1h = new TLine(hhHitTimes[0], -1500, hhHitTimes[0], 1500);
-                l1h->SetLineColorAlpha(kBlue, 1);
-                l1h->Draw();    
-                TLine *l2h = new TLine(hhHitTimes[1], -1500, hhHitTimes[1], 1500);
-                l2h->SetLineColorAlpha(kRed, 1);
-                l2h->Draw();    
-                TLine *l3h = new TLine(-5000, hhPeakIntPowers[0], 5000, hhPeakIntPowers[0]);
-                l3h->SetLineColorAlpha(kBlue, 1);
-                l3h->Draw();    
-                TLine *l4h = new TLine(-5000, hhPeakIntPowers[1], 5000, hhPeakIntPowers[1]);
-                l4h->SetLineColorAlpha(kRed, 1);
-                l4h->Draw();  
-                TLine *l5h = new TLine(-5000, peakThresholdH, 5000, peakThresholdH);
-                l5h->SetLineColorAlpha(kGreen, 1);
-                l5h->Draw(); 
-                TLine *l6h = new TLine(cutoffTime[i+8], -1500, cutoffTime[i+8], 1500);
-                // l6->SetLineColorAlpha(kPink, 1);
-                l6h->SetLineStyle(kDashed);
-                l6h->Draw();
-            }
-            
-            if (debugMode){
-                cout << "**********************" << endl;           
-                cout << "Ch = " << i << endl;            
-                cout << "initial waveform length = " << grV->GetN() << endl;            
-                cout << "interpolated waveform length = " << grIntV->GetN() << endl;            
-                cout << "cutoffTime at " << cutoffTime[i] << endl; 
-            }
-            //Crop waveform to first peak
-            grIntV = FFTtools::cropWave(grIntV, grIntV->GetX()[0], cutoffTime[i]);
-            if (debugMode){
-                cout << "cropped waveform length = " << grIntV->GetN() << endl;            
-            }
-            //Either pad or crop waveform to fit NFOUR/2
-            if (grIntV->GetN() < settings1->NFOUR/2) {
-                grIntV = FFTtools::padWaveToLength(grIntV, settings1->NFOUR/2);
-            }
-            else if (grIntV->GetN() > settings1->NFOUR/2) {
-                grIntV = FFTtools::cropWave(grIntV, grIntV->GetX()[0], grIntV->GetX()[settings1->NFOUR/2-1]);
-            }
-            if (debugMode){
-                cout << "padded waveform length = " << grIntV->GetN() << endl;
-            }
             interpolatedWaveforms[i] = grIntV;          
-            
-            if (debugMode){
-                cout << "**********************" << endl;           
-                cout << "Ch = " << i+8 << endl;            
-                cout << "initial waveform length = " << grH->GetN() << endl;            
-                cout << "interpolated waveform length = " << grIntH->GetN() << endl;            
-                cout << "cutoffTime at " << cutoffTime[i+8] << endl;  
-            }
-            //Crop waveform to first peak
-            grIntH = FFTtools::cropWave(grIntH, grIntH->GetX()[0], cutoffTime[i+8]);
-            if (debugMode){
-                cout << "cropped waveform length = " << grIntH->GetN() << endl;    
-            }
-            //Either pad or crop waveform to fit NFOUR/2
-            if (grIntH->GetN() < settings1->NFOUR/2) {
-                grIntH = FFTtools::padWaveToLength(grIntH, settings1->NFOUR/2);
-            }
-            else if (grIntH->GetN() > settings1->NFOUR/2) {
-                grIntH = FFTtools::cropWave(grIntH, grIntH->GetX()[0], grIntH->GetX()[settings1->NFOUR/2-1]);
-            }
-            if (debugMode){
-                cout << "padded waveform length = " << grIntV->GetN() << endl;
-            }
-            interpolatedWaveforms[i+8] = grIntH;              
-            
+            interpolatedWaveforms[i+8] = grIntH;       
+            delete grV, grH, grIntV, grIntH;
             
         }
-
-        if (debugMode){
-            char title[500];
-            sprintf(title, "waveform.png");
-            c->Print(title);
-        }
-        
-        delete c;
     
         std::map<int, double> snrs; // map of channels to SNRs
         for(int i=0; i<16; i++){
@@ -469,11 +288,7 @@ int main(int argc, char **argv)
         double the_snr_v = snrs_v[2];
         double the_snr_h = snrs_h[2];
         
-        //Adding condition where if the SNR is less than 8, we bypass the event.
-        // cout << "the_snr_v = " << the_snr_v << endl;
-        // cout << "the_snr_h = " << the_snr_h << endl;
-        v_snr_out = the_snr_v;
-        h_snr_out = the_snr_h;           
+        //Adding condition where if the SNR is less than 8, we bypass the event.          
         if (usefulAtriEvPtr->isCalpulserEvent()) {
             // cout << "Event is calpulser.  Bypassing event." << endl;
             continue;
@@ -492,15 +307,17 @@ int main(int argc, char **argv)
             // cout << "Event has too few channels with double peaks.  Bypassing event." << endl;
             // outTree->Fill();
             continue;            
-        }        
+        }  
         
         usefulAtriEvPtrOut=usefulAtriEvPtr;
+        
         passedEventCounter++;
 
         outTree->Fill();
         
-        delete usefulAtriEvPtrOut;
-        delete usefulAtriEvPtr;
+        // delete usefulAtriEvPtrOut;
+        // delete usefulAtriEvPtr;
+        // delete interpolatedWaveforms;
 
     
     }

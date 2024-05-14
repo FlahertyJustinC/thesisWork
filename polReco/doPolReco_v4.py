@@ -64,11 +64,19 @@ gSystem.Load('/cvmfs/ara.opensciencegrid.org/trunk/centos7/ara_build/lib/libAraE
 gSystem.Load("/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/libRootFftwWrapper/build/libRootFftwWrapper.so")
 
 #Read console input
-if len( sys.argv ) > 3:
+if len( sys.argv ) == 5:
     runNumber = int(sys.argv[1])
     recoSrcFolder = str(sys.argv[2])
     rawSrcFolder = str(sys.argv[3])
     outputFolder = str(sys.argv[4])
+    doCsw=False
+    
+elif len( sys.argv ) == 6:
+    runNumber = int(sys.argv[1])
+    recoSrcFolder = str(sys.argv[2])
+    rawSrcFolder = str(sys.argv[3])
+    outputFolder = str(sys.argv[4])  
+    doCsw=bool(sys.argv[5])
 
 else:
     print("ERROR:  Missing necessary flags. \nRun as:  python doPolReco_interf.py <run-number> <subset-number> <reco source folder> <raw source folder> <real or MC flag> <RF, soft-trigger, or calpulser flag> <noise type flag> <gainBalance flag> <deconvolution flag>")
@@ -89,9 +97,14 @@ recoFilename = recoSrcFolder
 rawInputFile = ROOT.TFile.Open(rawFilename)
 recoInputFile = ROOT.TFile.Open(recoFilename)
 
+if doCsw:
+    eventTreeName = "coherentSum"
+else:
+    eventTreeName = "eventTree"
+
 try:
 
-    eventTree = rawInputFile.Get("eventTree")
+    eventTree = rawInputFile.Get(eventTreeName)
     vertexReco = recoInputFile.Get("vertexReco")
 
     rawEvent = ROOT.RawAtriStationEvent()
@@ -112,7 +125,7 @@ except TypeError:
     file_list = []
     file_list.append(rawFilename)
     
-    eventTree = TChain("eventTree") #Define chain and tree that needs to be read. "VTree" in this case.
+    eventTree = TChain(eventTreeName) #Define chain and tree that needs to be read. "VTree" in this case.
     SimTree = TChain("AraTree2")
     vertexReco = recoInputFile.Get("vertexReco")
 
@@ -228,6 +241,7 @@ vSnrOut = np.zeros(numEvents)
 hSnrOut = np.zeros(numEvents)
 hilbertPeakOut = np.zeros((numEvents,16))
 peakTimeOut = np.zeros((numEvents,16))
+powerOut = np.zeros((numEvents,16))
 
 #Initialize array for timing cut values.
 runEventNumber = np.empty(numEvents).astype(str)   
@@ -298,8 +312,13 @@ for index in range(numEvents):
     
     timeStamp[index] = usefulEvent.timeStamp
     
-    hilbertPeakOut[index], peakTimeOut[index], snrsOut[index] = util.peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, solution="single", timeShift=14.1)
-    recoROut[index], psiRecoOut[index] = util.calculatePsiAndR(hilbertPeakOut[index]**2)
+    # hilbertPeakOut[index], peakTimeOut[index], snrsOut[index] = util.peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, solution="single", timeShift=0, tolerance=30, deconvolution=False)
+    hilbertPeakOut[index], peakTimeOut[index] = util.peakHilbertSimple(usefulEvent)
+    powerOut[index] = util.powerFromWaveformSimple(usefulEvent, peakTimeOut[index])
+    # recoROut[index], psiRecoOut[index] = util.calculatePsiAndR(hilbertPeakOut[index]**2)
+    recoROut[index], psiRecoOut[index] = util.calculatePsiAndR(powerOut[index])
+    
+    print(str(runNumber) + " | " + str(evt) + " | " + str(psiRecoOut[index]))
     
     ##Adding line to export snrs from vertexReco
     snrsOut[index] = np.array(vertexReco.snrs_out)

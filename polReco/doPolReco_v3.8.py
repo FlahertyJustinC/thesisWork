@@ -66,8 +66,6 @@ if len( sys.argv ) > 10:
     runNumber = int(sys.argv[2])
     subsetNumber = int(sys.argv[3])
     recoSrcFolder = str(sys.argv[4])
-    rawSrcFolder = str(sys.argv[5])
-    outputFolder = str(sys.argv[6])
     dataTypeFlag = int(sys.argv[7])
     signalTypeFlag = int(sys.argv[8])
     noiseTypeFlag = int(sys.argv[9])
@@ -79,7 +77,8 @@ else:
     print("ERROR:  Missing necessary flags. \nRun as:  python doPolReco_interf.py <run-number> <subset-number> <reco source folder> <raw source folder> <real or MC flag> <RF, soft-trigger, or calpulser flag> <noise type flag> <gainBalance flag> <deconvolution flag>")
     sys.exit()
 
-tolerance=10
+tolerance=30
+timeShift=0
 dt=0
 testChannels = [0,2,4]
 
@@ -201,7 +200,7 @@ if (dataTypeFlag == 1):  #Swapping this with condition below because things are 
         eventTree.GetEntry(evt)
         isCalpulser = usefulEvent.isCalpulserEvent()
         isSoftTrigger = usefulEvent.isSoftwareTrigger()
-        print("isSoftTrigger = " +str(isSoftTrigger))
+        # print("isSoftTrigger = " +str(isSoftTrigger))
         rfEventList.append(evt) #All AraSim events are softtrigger events, so just populate with all events for now.
         # # Set soft trigger events
         # if (isSoftTrigger):
@@ -385,7 +384,20 @@ for index in range(numEvents):
     print("evt = " + str(evt))
     vertexReco.GetEntry(evt)
     eventTree.GetEntry(evt)
-    powerOut[index], snrsOut[index] = util.powerFromWaveformSubtractHilbertNoise(rawEvent, usefulEvent, vertexReco, ROOT, noiseEnvelope, noiseRms, gainBalance = gainBalance, gainCorrection = powerNoiseConstant)
+    
+    ##Adding line to export snrs from vertexReco
+    snrsOut[index] = np.array(vertexReco.snrs_out)
+    vSnrOut[index] = vertexReco.v_snr_out
+    hSnrOut[index] = vertexReco.h_snr_out
+    
+    # print("vSnr = " + str(vSnrOut[index]))
+    # print("hSnr = " + str(hSnrOut[index]))
+    
+    if (vSnrOut[index] < 8 and hSnrOut[index] < 8):
+        print("SNR below threshold.  Bypassing event.")
+        continue
+    
+    # powerOut[index], snrsOut[index] = util.powerFromWaveformSubtractHilbertNoise(rawEvent, usefulEvent, vertexReco, ROOT, noiseEnvelope, noiseRms, gainBalance = gainBalance, gainCorrection = powerNoiseConstant)
     
     evt_num[index] = usefulEvent.eventNumber
     runNumberOut[index] = runNumber
@@ -399,27 +411,24 @@ for index in range(numEvents):
     
     timeStamp[index] = usefulEvent.timeStamp
     
-    hilbertPeakOut[index], peakTimeOut[index], snrsOut[index] = util.peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=gainBalance, gainCorrection=powerNoiseConstant, deconvolution=deconvolution, tolerance=tolerance, solution="single", timeShift=14.1)
+    hilbertPeakOut[index], peakTimeOut[index], snrsOut[index] = util.peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=gainBalance, gainCorrection=powerNoiseConstant, deconvolution=deconvolution, tolerance=tolerance, solution="single", timeShift=timeShift)
     recoROut[index], psiRecoOut[index] = util.calculatePsiAndR(hilbertPeakOut[index]**2)
     
-    ##Adding line to export snrs from vertexReco
-    # snrsOut[index] = np.array(vertexReco.snrs_out)
-    # vSnrOut[index] = vertexReco.v_snr_out
-    # hSnrOut[index] = vertexReco.h_snr_out
+    print("PsiReco = " + str(psiRecoOut[index]))
     
     ##Try SNR from Hilbert envelope:
     ##Nope can't do this with the deconvolved files, as the noise is basically zero after deconvolution.  This is giving me infinite SNR.
-    vSnrOut[index] = np.median(snrsOut[index,:8])
-    hSnrOut[index] = np.median(snrsOut[index,8:])
+    # vSnrOut[index] = np.median(snrsOut[index,:8])
+    # hSnrOut[index] = np.median(snrsOut[index,8:])
     
     try:
         pulserDepth[index] = f(usefulEvent.unixTime)
     except NameError:
-        print("Pulser depth calculation bypassed.  Setting run number to pulser depth.")
+        # print("Pulser depth calculation bypassed.  Setting run number to pulser depth.")
         pulserDepth[index] = runNumber
     unixtime[index] = usefulEvent.unixTime
     # print(f(usefulEvent.unixTime))
-    print(pulserDepth[index])
+    # print(pulserDepth[index])
     
     
     
@@ -428,7 +437,7 @@ deltaTPeakOut = peakTimeOut[:,8:] - peakTimeOut[:,:8]
 print("Events processed!")
 
 #Write calculations for condition where we swap HPol RF with HPol soft-trigger.
-powerSoftTriggerHpolOut[:,:8] = powerOut[:,:8]
+# powerSoftTriggerHpolOut[:,:8] = powerOut[:,:8]
 hilbertPeakSoftTriggerHpolOut[:,:8] = hilbertPeakOut[:,:8]
 softTriggerPeakTime = np.zeros((numEvents,16))
 
@@ -447,13 +456,33 @@ if (dataTypeFlag == 1):
     
 
 #Save data to pandas file
-original_df = pd.DataFrame({"runNumber":runNumberOut, "runSubsetNumber":runSubsetNumberOut, "eventNumber":evt_num.tolist(),   "timeStamp":timeStamp.tolist(), "runEventNumber":runEventNumber.tolist(),
-                            "thetaReco":thetaRecoOut.tolist(), "phiReco":phiRecoOut.tolist(), "thetaVertex":thetaVertexOut.tolist(), "phiVertex":phiVertexOut.tolist(), 
-                            "SNR":snrsOut.tolist(), "vSNR":vSnrOut.tolist(), "hSNR":hSnrOut.tolist(), "whichSol":whichSol.tolist(), "unixtime":unixtime.tolist(), 
-                            "power":powerOut.tolist(), "recoR":recoROut.tolist(), "psiReco":psiRecoOut.tolist(),
-                            "powerNoiseFromSoftTrigger":powerNoiseFromSoftTriggerOut.tolist(), "pulserDepth":pulserDepth.tolist(),
-                           "hilbertPeaks":hilbertPeakOut.tolist(), "peakTimes":peakTimeOut.tolist(), "deltaTPeaks":deltaTPeakOut.tolist(), "hilbertPeaksSoftTriggerHpol":hilbertPeakSoftTriggerHpolOut.tolist(),
-                           "timingChannels":timingChannelsOut.tolist(), "timingCutPass":timingCutPass.tolist(), "timingDifferenceMeasured":timingDifferenceMeasured.tolist(), "timingDifferenceExpected":timingDifferenceExpected.tolist()})
+original_df = pd.DataFrame({"runNumber":runNumberOut, 
+                            "runSubsetNumber":runSubsetNumberOut, 
+                            "eventNumber":evt_num.tolist(),   
+                            "timeStamp":timeStamp.tolist(), 
+                            "runEventNumber":runEventNumber.tolist(),
+                            "thetaReco":thetaRecoOut.tolist(), 
+                            "phiReco":phiRecoOut.tolist(), 
+                            "thetaVertex":thetaVertexOut.tolist(), 
+                            "phiVertex":phiVertexOut.tolist(), 
+                            "SNR":snrsOut.tolist(), 
+                            "vSNR":vSnrOut.tolist(), 
+                            "hSNR":hSnrOut.tolist(), 
+                            "whichSol":whichSol.tolist(), 
+                            "unixtime":unixtime.tolist(), 
+                            # "power":powerOut.tolist(), 
+                            "recoR":recoROut.tolist(), 
+                            "psiReco":psiRecoOut.tolist(),
+                            "powerNoiseFromSoftTrigger":powerNoiseFromSoftTriggerOut.tolist(), 
+                            "pulserDepth":pulserDepth.tolist(),
+                            "hilbertPeaks":hilbertPeakOut.tolist(), 
+                            "peakTimes":peakTimeOut.tolist(), 
+                            "deltaTPeaks":deltaTPeakOut.tolist(), 
+                            "hilbertPeaksSoftTriggerHpol":hilbertPeakSoftTriggerHpolOut.tolist(),
+                            "timingChannels":timingChannelsOut.tolist(), 
+                            "timingCutPass":timingCutPass.tolist(), 
+                            "timingDifferenceMeasured":timingDifferenceMeasured.tolist(), 
+                            "timingDifferenceExpected":timingDifferenceExpected.tolist()})
  
 
 #Create output directory if it doesn't already exist
@@ -484,9 +513,13 @@ if not isExist:
 # else:
 #     outfilePath = outputFolder + "/polReco_run%i.pkl"%(runNumber)  
 
-# outfilePath = outputFolder + "/polReco_run%i_%i.pkl"%(runNumber,subsetNumber)
 
-outfilePath = outputFolder + "/polReco_run%i.pkl"%(runNumber)  
+
+
+if (subsetNumber < 0):
+    outfilePath = outputFolder + "/polReco_run%i.pkl"%(runNumber)
+else:
+    outfilePath = outputFolder + "/polReco_run%i_%i.pkl"%(runNumber,subsetNumber)
 
 original_df.to_pickle(outfilePath)
 print("Output saved to " + outfilePath)

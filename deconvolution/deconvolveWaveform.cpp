@@ -71,6 +71,10 @@ UsefulAtriStationEvent *usefulAtriEvPtrOut;
 UsefulAtriStationEvent *usefulAtriCswPtrOut;
 
 bool debugMode = false;
+bool separateCsw = true;
+bool useMCTruth = true;
+bool forceSinglePeak = true;
+// double dt=0.1; //Sample rate for interpolation
 
 int main(int argc, char **argv)
 {
@@ -91,9 +95,6 @@ int main(int argc, char **argv)
     char* araFile = argv[5];
     char* recoFile = argv[6];
     char* outputDir = argv[7];
-    
-    double interpV = 0.4;
-    double interpH = 0.625;
     
     //Import AraRoot file
     printf("Opening root file...\n");
@@ -153,20 +154,30 @@ int main(int argc, char **argv)
     double reco_arrivalPhis[16];
     double cutoffTime[16];
     double arrivalTimes[16];
-    std::vector<int>* excludedChannels;    
+    //This method of initializing the vectors compiles, but I think it's causing sporadic seg faults.
+    // std::vector<int>* excludedChannels;    
+    // std::vector<int>* excludedChannelsOut; 
+    
+    //This method also compiles but doesn't prevent the seg faults.
+    // std::vector<int> *excludedChannels;    
+    // std::vector<int> *excludedChannelsOut;    
     
     double v_snr;
     double h_snr;
     
     // Testing using the true rf angles
-    // vertexReco->SetBranchAddress("true_arrivalThetas", reco_arrivalThetas);
-    // vertexReco->SetBranchAddress("true_arrivalPhis", reco_arrivalPhis);   
+    if (useMCTruth){
+        vertexReco->SetBranchAddress("true_arrivalThetas", reco_arrivalThetas);
+        vertexReco->SetBranchAddress("true_arrivalPhis", reco_arrivalPhis);  
+    }
     // end testing
-    vertexReco->SetBranchAddress("reco_arrivalThetas", reco_arrivalThetas);
-    vertexReco->SetBranchAddress("reco_arrivalPhis", reco_arrivalPhis);
-    vertexReco->SetBranchAddress("cutoffTime", cutoffTime);  
+    else {
+        vertexReco->SetBranchAddress("reco_arrivalThetas", reco_arrivalThetas);
+        vertexReco->SetBranchAddress("reco_arrivalPhis", reco_arrivalPhis);
+    }
+    vertexReco->SetBranchAddress("cutoffTime", cutoffTime);
     vertexReco->SetBranchAddress("arrivalTimes", arrivalTimes);
-    vertexReco->SetBranchAddress("excludedChannels", &excludedChannels);    
+    // vertexReco->SetBranchAddress("excludedChannels", &excludedChannels);    
     vertexReco->SetBranchAddress("v_snr", &v_snr);
     vertexReco->SetBranchAddress("h_snr", &h_snr);     
     Long64_t numEntriesVertex=vertexReco->GetEntries();
@@ -184,10 +195,17 @@ int main(int argc, char **argv)
     Detector *detector = new Detector(settings1, icemodel, setupfile);  
     Report *report = new Report(detector, settings1);
     
-    // settings1->NFOUR = 2048;
+    //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
+    std::vector<int> excludedChannels; 
+    getExcludedChannels(excludedChannels, settings1, detector);
+    
+    // settings1->NFOUR *= 8;
     
     cout << "settings1->NFOUR = " << settings1->NFOUR << endl;
     
+    // settings1->TIMESTEP = dt*1e-9;
+    double dt = settings1->TIMESTEP*1e9;
+    // double dt = 0.1;
     
     cout << "Settings->TIMESTEP = " << settings1->TIMESTEP << endl;
     
@@ -206,7 +224,7 @@ int main(int argc, char **argv)
     TTree *outTreeCsw = new TTree("coherentSum", "coherentSum");
     outTree->Branch("UsefulAtriStationEvent", &usefulAtriEvPtrOut);
     outTreeCsw->Branch("UsefulAtriStationEvent", &usefulAtriCswPtrOut);
-    outTreeCsw->Branch("excludedChannels", &excludedChannels);
+    // outTreeCsw->Branch("excludedChannels", &excludedChannelsOut);
     
     //TODO: Make this tree for coherent sum and output the coherently summed E-field in both V and Hpol, along with a listing of the channels used in the sums. - JCF 4/26/2024
     // TTree *coherentSumTree = new TTree("coherentSum", "coherentSum");
@@ -226,8 +244,17 @@ int main(int argc, char **argv)
     
     
     //Loop over events
-    // for(Long64_t event=0;event<numEntries;event++) {
-    for(Long64_t event=678;event<680; event++) {  //Debugging and running over events enar desired event to save time in loop.      
+    int loopedEntries;
+    if (debugMode) {
+        loopedEntries=1;
+    }
+    else {
+        loopedEntries=numEntries;
+    }
+    
+    for(Long64_t event=0;event<loopedEntries;event++) {
+    // for(Long64_t event=0;event<1;event++) {
+    // for(Long64_t event=679;event<680; event++) {  //Debugging and running over events enar desired event to save time in loop.      
     // for(Long64_t event=53530;event<53539;event++) {  //Debugging and running over events near desired event to save time in loop.    
         std::cout<<"Looking at event number "<<event<<std::endl;
         fp->cd();
@@ -238,11 +265,12 @@ int main(int argc, char **argv)
         //     continue;
         // }  
 
-        if (rawAtriEvPtr->eventNumber != 679){  //Test for A2 Run 12559
-            continue;
-        }      
-        // vertexReco->GetEntry(event);
-        vertexReco->GetEntry(0);  //For debugging purposes.  TODO: Change back!
+        // if (rawAtriEvPtr->eventNumber != 679){  //Test for A2 Run 12559
+        //     continue;
+        // }
+        cout << "Importing vertex reco info" << endl;
+        vertexReco->GetEntry(event);
+        // vertexReco->GetEntry(0);  //For debugging purposes.  TODO: Change back!
         
         if (not calibrated) {
             cout << "Triggering datalike condition." << endl;
@@ -254,16 +282,16 @@ int main(int argc, char **argv)
         
       
         
-        cout << "v_snr = " << v_snr << endl;
-        cout << "h_snr = " << h_snr << endl;
+        // cout << "v_snr = " << v_snr << endl;
+        // cout << "h_snr = " << h_snr << endl;
         
-        if (v_snr < 8 and h_snr < 8) {
-            cout << "Event below SNR threshold.  Bypassing event." << endl;
-            // v_snr_out = the_snr_v;
-            // h_snr_out = the_snr_h;            
-            outTree->Fill();
-            continue;
-        }        
+        // if (v_snr < 8 and h_snr < 8) {
+        //     cout << "Event below SNR threshold.  Bypassing event." << endl;
+        //     // v_snr_out = the_snr_v;
+        //     // h_snr_out = the_snr_h;            
+        //     outTree->Fill();
+        //     continue;
+        // }        
         
         
 
@@ -276,8 +304,14 @@ int main(int argc, char **argv)
             //Save initial and final time for truncating the padded arrays before output.
             double timeStart = gr->GetX()[0];
             double timeEnd = gr->GetX()[gr->GetN()-1];
+            //Apply time shift to center waveform
+            double timeShift = (timeStart+timeEnd)/2;
+            for(int k=0; k<gr->GetN(); k++){
+                gr->GetX()[k] = gr->GetX()[k] - timeShift;
+            }               
+            
             //Interpolate graph to 0.5 ns resolution
-            gr = FFTtools::getInterpolatedGraph(gr,0.5);
+            gr = FFTtools::getInterpolatedGraph(gr,dt);
             //Pad waveform to a factor of two. - JCF 9/27/2023
             if (gr->GetN() < settings1->NFOUR/2) {
                 gr = FFTtools::padWaveToLength(gr, settings1->NFOUR/2);
@@ -294,32 +328,37 @@ int main(int argc, char **argv)
             double T_forint[settings1->NFOUR / 2];
             
             //TODO: This init_T isn't dynamic to the imported data.  Should make have it defined based on the input waveform.
-            double init_T = settings1->TIMESTEP *-1.e9 *((double) settings1->NFOUR / 4);    // locate zero time at the middle and give random time shift       
-            
+            double init_T = settings1->TIMESTEP *-1.e9 *((double) settings1->NFOUR / 4);
             for(int k=0; k<waveform_bin; k++){
                 time[k] = gr->GetX()[k];
                 voltage[k] = gr->GetY()[k];
             }            
             delete gr;
+            // cout << "time[0] = " << time[0] << endl;
             
-            // for (int m = 0; m < settings1->NFOUR / 2; m++)
+            for (int m = 0; m < settings1->NFOUR / 2; m++)
             // for (int m = 0; m < 2048; m++)
-            for (int m = 0; m < settings1->NFOUR; m++)
+            // for (int m = 0; m < settings1->NFOUR; m++)
             {
-                // T_forint[m] = -512 + m*0.5;   // in ns
-                T_forint[m] = time[0] + m*0.5;   // in ns
+                T_forint[m] = init_T + m*dt;   // in ns
+                // cout << "T_forint[" << m << "] = " << T_forint[m] << endl;
+                // T_forint[m] = time[0] + m*0.5;   // in ns
+                // T_forint[m] = -1*(settings1->NFOUR/2) + m*0.5;   // in ns
             }
             
             //Importing the cutoff time between spicecore peaks
             double cutoffTimeChannel;
-
+            if (forceSinglePeak) {
+                cutoffTime[i] = time[waveform_bin-1]; //TODO: Adding this for debugging.  Be sure to remove.
+            }
+               
             if (!cutoffTime) {
                 cutoffTimeChannel = time[waveform_bin-1];
             } else {
                 cutoffTimeChannel = cutoffTime[i];
             }            
             //TODO: Add step that centers the waveform about zero in time, for purposes of the fourier transform.  Then save this shift and reapply it to restore the time-domain information after the InvFFT.            
-            double timeshift = time[waveform_bin/2];
+            // double timeshift = time[waveform_bin/2];
             // cout << "timeshift = " << timeshift << endl;
     
             double freq_tmp, heff, antenna_theta, antenna_phi;  // values needed for apply antenna gain factor and prepare fft, trigger
@@ -389,6 +428,7 @@ int main(int argc, char **argv)
                 // make Tarray, Earray located at the center of Nnew array
 
                 T_forfft[n] = time[waveform_bin / 2] - (dT_forfft *(double)(Nnew / 2 - n));
+                // cout << "T_forfft[" << n << "] = " << T_forfft[n] << endl;
                 // T_forfft[n] = time[waveform_bin / 2] - (dT_forfft *(double)(Nnew / 2 - n)) - timeshift;  //TODO: Apply time shift to center array in time domain.
 
                 if ((n >= Nnew / 2 - waveform_bin / 2) &&
@@ -409,40 +449,78 @@ int main(int argc, char **argv)
             freq_tmp = dF_Nnew *((double) Nnew / 2. + 0.5); // in Hz 0.5 to place the middle of the bin and avoid zero freq
 
             freq_lastbin = freq_tmp;
+            
+            heff_lastbin = report->GaintoHeight(detector->GetGain_1D_OutZero(freq_tmp *1.E-6,   // to MHz
+                                                antenna_theta, antenna_phi, pol_ant),
+                                                freq_tmp, nice);                  
          
             for (int n = 0; n < Nnew / 2; n++)
             // for (int n = 0; n < settings1->NFOUR / 2; n++)            
             {
                 freq_tmp = dF_Nnew *((double) n + 0.5); // in Hz 0.5 to place the middle of the bin and avoid zero freq
-                heff_lastbin = report->GaintoHeight(detector->GetGain_1D_OutZero(freq_tmp *1.E-6,   // to MHz
-                        antenna_theta, antenna_phi, pol_ant),
-                    freq_tmp, nice);             
+                // heff_lastbin = report->GaintoHeight(detector->GetGain_1D_OutZero(freq_tmp *1.E-6,   // to MHz
+                //         antenna_theta, antenna_phi, pol_ant),
+                //     freq_tmp, nice);             
 
                 heff = report->GaintoHeight(detector->GetGain_1D_OutZero(freq_tmp *1.E-6,   // to MHz
-                        antenna_theta, antenna_phi, pol_ant),
-                    freq_tmp, nice);
+                                            antenna_theta, antenna_phi, pol_ant),
+                                            freq_tmp, nice);
                 // invert entire elect chain gain, phase
                 if (n > 0)
                 {                
-                    report->InvertElect_Tdomain(freq_tmp *1.e-6, detector, V_forfft[2 *n], V_forfft[2 *n + 1], gain_ch_no);
+                    report->InvertElect_Tdomain(
+                        freq_tmp *1.e-6, 
+                        detector, 
+                        V_forfft[2 *n], 
+                        V_forfft[2 *n + 1], 
+                        gain_ch_no,
+                        settings1);
                 }
                 else
                 {
-                    report->InvertElect_Tdomain_FirstTwo(freq_tmp *1.e-6, freq_lastbin *1.e-6, detector, V_forfft[2 *n], V_forfft[2 *n + 1], gain_ch_no);
+                    report->InvertElect_Tdomain_FirstTwo(
+                        freq_tmp *1.e-6, 
+                        freq_lastbin *1.e-6, 
+                        detector, 
+                        V_forfft[2 *n], 
+                        V_forfft[2 *n + 1], 
+                        gain_ch_no,
+                        settings1);
                 }
                 if (n > 0)
                 {
-                    report->InvertAntFactors_Tdomain(detector->GetAntPhase_1D(freq_tmp *1.e-6, antenna_theta, antenna_phi, pol_ant),
-                       heff, Pol_vector, pol_ant, Pol_factor, V_forfft[2 *n], V_forfft[2 *n + 1], antenna_theta, antenna_phi);                   
+                    report->InvertAntFactors_Tdomain(
+                        detector->GetAntPhase_1D(freq_tmp *1.e-6, antenna_theta, antenna_phi, pol_ant),
+                        heff, 
+                        Pol_vector, 
+                        pol_ant, 
+                        Pol_factor, 
+                        V_forfft[2 *n], 
+                        V_forfft[2 *n + 1],
+                        settings1,
+                        antenna_theta, 
+                        antenna_phi,
+                        freq_tmp);                   
                 }
                 else
                 {
-                    report->InvertAntFactors_Tdomain_FirstTwo(heff, heff_lastbin, Pol_vector, pol_ant, Pol_factor, V_forfft[2 *n], V_forfft[2 *n + 1], antenna_theta, antenna_phi);
+                    report->InvertAntFactors_Tdomain_FirstTwo(
+                        heff, 
+                        heff_lastbin, 
+                        Pol_vector, 
+                        pol_ant, 
+                        Pol_factor, 
+                        V_forfft[2 *n], 
+                        V_forfft[2 *n + 1],
+                        antenna_theta, 
+                        antenna_phi,
+                        freq_tmp);
 
                 }
                 
                 // Quick and dirty hack to filter out frequencies above 850 MHz and below 100 MHz to match ARA's bandpass filter.             
                 if (freq_tmp > 850.*1.e6 or freq_tmp < 100.*1.e6) {
+                // if (freq_tmp > 600.*1.e6 or freq_tmp < 200.*1.e6) {                
                     V_forfft[2*n] = 0;
                     V_forfft[2*n+1] = 0;
                 }                   
@@ -479,7 +557,8 @@ int main(int argc, char **argv)
                 int elecChan = AraGeomTool::Instance()->getElecChanFromRFChan(i, settings1->DETECTOR_STATION);
                 // not pure noise mode (we need signal)
                 usefulAtriEvPtrOut->fVolts[elecChan].push_back(settings1->ARBITRARY_EVENT_ATTENUATION *volts_forint[n] *2. / (double)(Nnew));  // 2/N for inverse FFT normalization factor
-                usefulAtriEvPtrOut->fTimes[elecChan].push_back(T_forint[n]);                
+                usefulAtriEvPtrOut->fTimes[elecChan].push_back(T_forint[n]+timeShift);    
+                // cout << "T_forint[" << n << "] = " << T_forint[n] << endl;;
             }
             usefulAtriEvPtrOut->stationId = settings1->DETECTOR_STATION;
             usefulAtriCswPtrOut->stationId = settings1->DETECTOR_STATION;
@@ -508,9 +587,9 @@ int main(int argc, char **argv)
         }            
         
         
-        fpOut->cd();
-        outTree->Fill();
-        
+        // fpOut->cd();
+        // outTree->Fill();
+        // cout << "aaa" << endl;
         //Plotting deconvolved Waveform before CSW
         //TCanvas for the coherently summed waveform separated by VPol and HPol
         if (debugMode) {
@@ -520,14 +599,17 @@ int main(int argc, char **argv)
             //Create array of channel pairs to exclude in the coherent sum
             std::vector<int> cswExcludedChannelPairs;
             for(int i=0; i<8; i++){
-                bool checkVpol = std::find((*excludedChannels).begin(), (*excludedChannels).end(), i) != (*excludedChannels).end();
-                bool checkHpol = std::find((*excludedChannels).begin(), (*excludedChannels).end(), i+8) != (*excludedChannels).end();
+                bool checkVpol = std::find(excludedChannels.begin(), excludedChannels.end(), i) != excludedChannels.end();
+                bool checkHpol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();
                 if (checkVpol or checkHpol) {
                     cout << "Excluding channel pair " << i << endl;
                     cswExcludedChannelPairs.push_back(i);
                 }
 
-            }        
+            }
+            
+            cout << "bbb" << endl;
+            
             double arrivalTimeMax = *max_element(arrivalTimes, arrivalTimes + 16);
             double arrivalTimeMin = *min_element(arrivalTimes, arrivalTimes + 16);        
 
@@ -537,15 +619,15 @@ int main(int argc, char **argv)
                 bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
 
                 TGraph *gr = usefulAtriEvPtrOut->getGraphFromRFChan(i);
-                gr = FFTtools::cropWave(gr, gr->GetX()[0], cutoffTime[i]);
+                // gr = FFTtools::cropWave(gr, gr->GetX()[0], cutoffTime[i]);
 
                 for(int k=0; k<gr->GetN(); k++){
-                    gr->GetX()[k] = gr->GetX()[k] - arrivalTimes[i] + arrivalTimeMax;
+                    gr->GetX()[k] = gr->GetX()[k];// - arrivalTimes[i] + arrivalTimeMax;
                 }
 
                 // cout << "Ch " << i << " time[0] = " << gr->GetX()[0] << endl;
 
-                gr = FFTtools::getInterpolatedGraph(gr,0.5);
+                gr = FFTtools::getInterpolatedGraph(gr,dt);
                 // gr = FFTtools::getInterpolatedGraphFreqDom(gr,0.1);
 
                 cTimeshift->cd(i+1); gPad->SetGrid(1,1);
@@ -561,7 +643,7 @@ int main(int argc, char **argv)
 
 
             char title[500];
-            sprintf(title, "waveformDeconvolved.png");
+            sprintf(title, "waveformDeconvolved_%s.png", runNumber);
             cTimeshift->Print(title);  
         }
         
@@ -569,8 +651,20 @@ int main(int argc, char **argv)
         //Create coherent sum logic
         TGraph *cswVpol = new TGraph();
         TGraph *cswHpol = new TGraph();
+        
+        // cout << "cutoffTime = ";
+        // for (int i=0; i<16; i++){
+        //     cout << cutoffTime[i] << ", ";
+        // }
+        // cout << endl;
 
-        calculateCSW(usefulAtriEvPtrOut, (*excludedChannels), cutoffTime, arrivalTimes, cswVpol, cswHpol);
+        // cout << "ddd" << endl;
+        
+        calculateCSW(usefulAtriEvPtrOut, excludedChannels, cutoffTime, arrivalTimes, cswVpol, cswHpol, dt);
+        
+        // cout << "eee" << endl;
+        
+        // excludedChannelsOut = excludedChannels;
 
         if (debugMode) {
             cout << "Sizes of csw TGraphs: "<< endl;
@@ -594,9 +688,11 @@ int main(int argc, char **argv)
             cswHpol->SetTitle(hCswTitle);
 
             char cswTitle[500];
-            sprintf(cswTitle, "waveformCSW.png");
+            sprintf(cswTitle, "waveformCSW_%s.png", runNumber);
             cCsw->Print(cswTitle);   
         }
+        
+        // cout << "ccc" << endl;
         
         for (int ch=0; ch<16; ch++) {
             for (int i=0; i<cswVpol->GetN(); i++){
@@ -613,13 +709,96 @@ int main(int argc, char **argv)
                 }
             }
         }        
+        
+        if (not separateCsw) {
+            usefulAtriEvPtrOut->fVolts.clear();
+            usefulAtriEvPtrOut->fTimes.clear();             
+            for (int ch=0; ch<16; ch++) {
+                for (int i=0; i<cswVpol->GetN(); i++){
+                    int elecChan = AraGeomTool::Instance()->getElecChanFromRFChan(ch, settings1->DETECTOR_STATION);
+                    //Vpol
+                    if (ch<8) {
+                        usefulAtriEvPtrOut->fVolts[elecChan].push_back(cswVpol->GetY()[i]);
+                        usefulAtriEvPtrOut->fTimes[elecChan].push_back(cswVpol->GetX()[i]);
+                    }
+                    //HPol
+                    else {
+                        usefulAtriEvPtrOut->fVolts[elecChan].push_back(cswHpol->GetY()[i]);
+                        usefulAtriEvPtrOut->fTimes[elecChan].push_back(cswHpol->GetX()[i]);
+                    }
+                }
+            }       
+        }
+        
         fpOut->cd();
+        outTree->Fill();
         outTreeCsw->Fill();
 
+        // cout << "bbb" << endl;
+
+        if (debugMode) {
+            TCanvas *c2 = new TCanvas("","", 1600, 1600);
+            c2->Divide(4,4);          
+
+            //Create array of channel pairs to exclude in the coherent sum
+            std::vector<int> cswExcludedChannelPairs;
+            for(int i=0; i<8; i++){
+                bool checkVpol = std::find(excludedChannels.begin(), excludedChannels.end(), i) != excludedChannels.end();
+                bool checkHpol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();
+                if (checkVpol or checkHpol) {
+                    cout << "Excluding channel pair " << i << endl;
+                    cswExcludedChannelPairs.push_back(i);
+                }
+
+            }
+
+            
+
+            double arrivalTimeMax = *max_element(arrivalTimes, arrivalTimes + 16);
+            double arrivalTimeMin = *min_element(arrivalTimes, arrivalTimes + 16);
+            double arrivalTimeAvg = 0;
+            for (int i=0; i<16; i++) {
+                arrivalTimeAvg += arrivalTimes[i]/16;
+            }
+
+            for(int i=0; i<16; i++){
+
+                //Check if channel is in the excluded channel list
+                bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
+
+                TGraph *gr = usefulAtriEvPtrOut->getGraphFromRFChan(i);
+                // gr = FFTtools::cropWave(gr, gr->GetX()[0], cutoffTime[i]);
+
+                for(int k=0; k<gr->GetN(); k++){
+                    gr->GetX()[k] = gr->GetX()[k] - arrivalTimes[i] + arrivalTimeAvg;
+                }
+
+                // cout << "Ch " << i << " time[0] = " << gr->GetX()[0] << endl;
+
+                gr = FFTtools::getInterpolatedGraph(gr,0.5);
+                // gr = FFTtools::getInterpolatedGraphFreqDom(gr,0.1);
+
+                c2->cd(i+1); gPad->SetGrid(1,1);
+                gr->Draw();
+                if (checkExcluded) {
+                    gr->SetLineColor(2);
+                }
+                char vTitle[500];
+                sprintf(vTitle,"Ch. %.2d", i);
+                gr->SetTitle(vTitle);            
+
+            }
+
+
+            char title[500];
+            sprintf(title, "waveformDeconvolved2_%s.png", runNumber);
+            c2->Print(title); 
+        }
+        
         usefulAtriCswPtrOut->fVolts.clear();
         usefulAtriCswPtrOut->fTimes.clear();        
         usefulAtriEvPtrOut->fVolts.clear();
-        usefulAtriEvPtrOut->fTimes.clear();
+        usefulAtriEvPtrOut->fTimes.clear();        
     } //event loop
 
     fpOut->Write();

@@ -28,7 +28,8 @@ UsefulAtriStationEvent *usefulAtriEvPtr;
 #include "helper.h"
 #include "tools.h"
 
-bool debugMode = true;
+bool debugMode = false;
+bool useMcTruth = true;
 
 void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi, double &peakCorr) {
 
@@ -47,149 +48,46 @@ void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi,
 
 
 //TODO: make radii and numScanned a little more dynamic so that it doesn't have to be hardcoded.  Maybe had it scan the rt_tables folder to have ti compile a list of radii that match the station, then defining the radii array using those values?  numScanned would simply just be the length of radii[]. Should also have it scan AFTER the station number is declared.  4/6/2024
-double radii[] = {
-      0,  150,  300,  450,  600,  750,  900, 1050, 1200, 1350, 1500, 1650, 1800, 1950,
- 2100, 2250, 2400, 2550, 2700, 2850, 3000, 3150, 3300, 3450, 3600, 3750, 3900, 4050,
- 4200, 4350, 4500, 4650, 4800, 4950
-};
-const int numScanned = 34;
+// double radii[] = {
+//     //   0,  
+//     // 150,  
+//     // 300,  
+//     // 450,  
+//     // 600,  
+//     // 750,  
+//     // 900, 
+//     // 1050, 
+//     // 1200, 
+//     // 1350, 
+//     // 1500, 
+//     // 1650, 
+//     // 1800, 
+//     // 1950,
+//     // 2100, 
+//     // 2250, 
+//     // 2400, 
+//     2550 
+//     // 2700
+//     // 2850, 
+//     // 3000, 
+//     // 3150, 
+//     // 3300, 
+//     // 3450, 
+//     // 3600, 
+//     // 3750, 
+//     // 3900, 
+//     // 4050,
+//     // 4200, 
+//     // 4350, 
+//     // 4500, 
+//     // 4650, 
+//     // 4800, 
+//     // 4950
+// };
 
-double calculateNoiseRMS(TGraph *gr, int sampleNumber=100) {
-    int totalSampleNumber = abs(sampleNumber);
-    int waveformLength = gr->GetN();
-    double voltageSubset[totalSampleNumber];
-    if (sampleNumber<0){
-        //Loop over beginning of waveform for noise
-        for(int j=0; j<totalSampleNumber; j++){
-            voltageSubset[j] = gr->GetY()[j];
-        }
-    }
-    else {
-        //Loop over end of waveform for noise
-        for(int j=0; j<totalSampleNumber; j++){
-            voltageSubset[j] = gr->GetY()[waveformLength-1-j];
-        }        
-    }
-    double noiseRms = TMath::RMS(totalSampleNumber,voltageSubset);
-    
-    if (noiseRms == 0) {
-        noiseRms=1;
-    }
-    
-    return noiseRms;
-}
+double radii[] = {2575};
 
-
-//Creating CSW function
-void calculateCSW(UsefulAtriStationEvent *usefulAtriEvPtr, std::vector<int> excludedChannels, double cutoffTime[16], double arrivalTimes[16], TGraph *cswVpolOut, TGraph *cswHpolOut) {
-    
-    const double dt = 0.5;
-    //Loop over excluded channels to form excluded pairs list
-    std::vector<int> cswExcludedChannelPairs;
-    for(int i=0; i<8; i++){
-        bool checkVpol = std::find(excludedChannels.begin(), excludedChannels.end(), i) != excludedChannels.end();
-        bool checkHpol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();
-        if (checkVpol or checkHpol) {
-            cswExcludedChannelPairs.push_back(i);
-        }
-
-    }
-    
-    //Make map of kept Vpol and kept HPol channels
-    map<int, TGraph*> mapWaveforms;
-    map<int, double> mins; //Map of the min time for each waveform.
-    map<int, double> maxes; // Map of the max time sfor ecah waveform.
-    double tMin=-1e100;  //Will represent the LARGEST min time across channels
-    double tMax=1e100;  //Will represent the SMALLEST max time across channels.
-    
-    double arrivalTimeMax = *max_element(arrivalTimes, arrivalTimes + 16);
-    double arrivalTimeMin = *min_element(arrivalTimes, arrivalTimes + 16);    
-    //Import waveforms and Apply time delays
-    TGraph *gr;
-    for (int i=0; i<16; i++) {
-        //Import waveform as Tgraph.
-        gr = usefulAtriEvPtr->getGraphFromRFChan(i);
-        //Crop to D-pulse only.
-        gr = FFTtools::cropWave(gr, gr->GetX()[0], cutoffTime[i]);
-        //Interpolate to 0.5 ns
-        gr = FFTtools::getInterpolatedGraph(gr,dt);        
-
-        for(int k=0; k<gr->GetN(); k++){
-            gr->GetX()[k] = gr->GetX()[k] - arrivalTimes[i] + arrivalTimeMax;
-        }
-        mapWaveforms[i] = gr;
-        mins[i] = gr->GetX()[0];
-        maxes[i] = gr->GetX()[gr->GetN()-1];
-        bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
-        if (not checkExcluded) {
-        // if (i == 0) {
-        //     //Initialize tMin and tMax to channel 0's values, then loop over the rest of the channels to find the true min and max.
-        //     tMin = mins[0];
-        //     tMax = maxes[0];
-        // }
-        // else {
-        //     //Loop over the remaining channels.  We want to store the LARGEST tMin and SMALLEST tMax.  These serve as our cropping windows so that the waveforms being summed are in the same time range.
-            if (tMin < mins[i]) {tMin = mins[i];}
-            if (tMax > maxes[i]) {tMax = maxes[i];}
-        }
-    }
-    
-    cout << "tMin = " << tMin << endl;
-    cout << "tMax = " << tMax << endl;
-    
-    //Initialize time and voltage arrays for the coherent sum.
-    const int nT = int((tMax-tMin)/dt);
-    // vector<double> timeCsw;
-    // vector<double> voltageCswVpol;    
-    // vector<double> voltageCswHpol;  
-    double timeCsw[nT];
-    double voltageCswVpol[nT];    
-    double voltageCswHpol[nT];      
-    
-    //Loop over waveforms and crop to the global tMin and tMax
-    for (int i=0; i<16; i++) {
-        mapWaveforms[i] = FFTtools::cropWave(mapWaveforms[i], tMin, tMax);
-    }
-    cout << "nT = " << nT << endl;
-    
-    //Now loop over the time bins to sum the waveforms
-    for (int j=0; j<nT; j++) {
-        //Initilize time bin
-        timeCsw[j] = tMin + j*dt;
-        // cout << "j = " << j << endl;
-        // timeCsw.push_back(tMin + j*dt);
-        // //Initialize voltage bin
-        double thisVpolVoltage=0;
-        double thisHpolVoltage=0;
-        for (int i=0; i<8; i++) {
-            bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
-            if (not checkExcluded) {
-                thisVpolVoltage+=mapWaveforms[i]->GetY()[j];
-                thisHpolVoltage+=mapWaveforms[i+8]->GetY()[j];
-            }
-        }
-        // cout << "thisVpolVoltage = " << thisVpolVoltage << endl;
-        // cout << "thisHpolVoltage = " << thisHpolVoltage << endl;
-        // voltageCswVpol.push_back(thisVpolVoltage);
-        // voltageCswHpol.push_back(thisHpolVoltage);
-        // voltageCswVpol[j] = thisVpolVoltage;
-        // voltageCswHpol[j] = thisHpolVoltage;        
-        // cout << "pushed!" << endl;
-        cswVpolOut->SetPoint(j, timeCsw[j], thisVpolVoltage);
-        cswHpolOut->SetPoint(j, timeCsw[j], thisHpolVoltage);
-    }
-    
-    cout << "Writing CSW to Tgraph" << endl;
-    // cout << "voltageCswVpol[0]) = " << voltageCswVpol[0] << endl;
-    // cout << "voltageCswHpol[0]) = " << voltageCswHpol[0] << endl;
-    // cout << "timeCsw[0]) = " << timeCsw[0] << endl;
-    // cswVpolOut = new TGraph(nT, timeCsw, voltageCswVpol);
-    // cswHpolOut = new TGraph(nT, timeCsw, voltageCswHpol);
-    cout << "Tgraph written!" << endl;
-    cout << "cswVpolOut->GetN() = " << cswVpolOut->GetN() << endl;
-    cout << "cswHpolOut->GetN() = " << cswHpolOut->GetN() << endl;
-    
-}
+const int numScanned = sizeof(radii)/sizeof(radii[0]);
 
 int main(int argc, char **argv)
 {
@@ -199,17 +97,11 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    //Todo: check if these values are the same across stations and configs, or if I need to make it dynamic 4/9/2024
-    double interpV = 0.4;
-    double interpH = 0.625;
-
     int station = atoi(argv[1]);  //This will be made redundant when we include the setupfile. 4/6/2024
     char* runNum = argv[2];
     char* inputFile = argv[3];
     char* outputDir = argv[4];
     char* setupfile = argv[5];
-    
-    
 
     char outfile_name[400];
     sprintf(outfile_name, "%s/recangle_reco_out_run_%s.root", outputDir, runNum);
@@ -239,7 +131,7 @@ int main(int argc, char **argv)
     int likelySol_out;
     double true_arrivalThetas_out[16];
     double true_arrivalPhis_out[16];
-    double cutoffTime[16];    
+    double cutoffTime[16]; 
     
     int eventNumber;
     int unixTime;
@@ -285,7 +177,7 @@ int main(int argc, char **argv)
     outTree->Branch("timeStamp", &timeStamp, "timeStamp/I");
     
     //This should work for any double-peak event, as simulated events can show D and R solution in a large enough trigger window.
-    outTree->Branch("cutoffTime", &cutoffTime, "cutoffTime[16]/D");    
+    outTree->Branch("cutoffTime", &cutoffTime, "cutoffTime[16]/D");  
 
     printf("------------------\n");
     printf("Output File Setup Complete. Begin correlator setup.\n");
@@ -323,12 +215,9 @@ int main(int argc, char **argv)
         double radius = radii[r];
         printf("Loading Radius %.2f\n",radius);
         double angular_size = 1.;
-        // int icemodel = 0;  //This should be replaced with whatever ice model is used in the setup file. 4/6/2024
-        int iceModel = settings1->RAY_TRACE_ICE_MODEL_PARAMS;  //This should be replaced with whatever ice model is used in the setup file. 4/6/2024
-        // cout << "Using icemodel = " << icemodel << endl;
+        int iceModel = settings1->RAY_TRACE_ICE_MODEL_PARAMS; 
         char dirPath[500];
         char refPath[500];
-        //std::string topDir = "/mnt/home/baclark/ara/rt_tables";
         std::string topDir = "rt_tables";
         sprintf(dirPath, "%s/arrivaltimes_station_%d_icemodel_%d_radius_%.2f_angle_%.2f_solution_0.root",
             topDir.c_str(), station, iceModel, radius, angular_size
@@ -351,24 +240,7 @@ int main(int argc, char **argv)
     
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
     std::vector<int> excludedChannels;
-    if (settings1->DETECTOR_STATION==2){
-        cout << "Using station 2.  Excluding channels 1 and 3 in addition to the masking." << endl;
-        excludedChannels.push_back(1);  //Removing extra A2 channels as the D-pulse gets clipped.
-        excludedChannels.push_back(3); 
-    }    
-    if (settings1->DETECTOR_STATION==4){
-        cout << "Using station 4.  Excluding channels 0,4,8 in addition to the masking." << endl;
-        excludedChannels.push_back(0);  //Testing removing a channel for A4 as only the R pulse makes it into the waveform.
-        excludedChannels.push_back(4); 
-        excludedChannels.push_back(8);
-    }
-    for (int i=0; i<16; i++){
-        // cout << "detector->GetTrigMasking(i) = " << detector->GetTrigMasking(i) << endl;
-        if (not detector->GetTrigMasking(i)){
-            cout << "Excluding channel " << i << endl;
-            excludedChannels.push_back(i);
-        }
-    }
+    getExcludedChannels(excludedChannels, settings1, detector);
     std::map< int, std::vector<int> > pairs_V = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kVertical, excludedChannels);
     std::map< int, std::vector<int> > pairs_H = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kHorizontal, excludedChannels);    
     
@@ -380,36 +252,7 @@ int main(int argc, char **argv)
     bool calibrated;
     Event *eventPtr = 0; // it is apparently incredibly important that this be initialized to zero...
     Report *reportPtr = 0; 
-    std::vector<double> average_position;
-    
-    //data like
-//     if(!simSettingsTree) { 
-//         dataLike = true;            
-//         std::cerr << "Can't find AraTree.  Importing as real data.\n";
-//         eventTree->SetBranchAddress("event",&rawAtriEvPtr);
-//         weight = 1;
-//     }
-//     // sim like
-//     else {
-//         dataLike = false;
-//         std::cerr << "AraTree exists.  Importing as simulated data.\n";
-//         eventTree->SetBranchAddress("UsefulAtriStationEvent", &usefulAtriEvPtr);
-//         weight;
-//         eventTree->SetBranchAddress("weight", &weight);
-//         // Detector *detector = 0;
-//         simSettingsTree=(TTree*) fp->Get("AraTree");
-//         if(!simSettingsTree) { std::cerr << "Can't find AraTree\n"; return -1; }
-//         simSettingsTree->SetBranchAddress("detector", &detector);
-//         simSettingsTree->GetEntry(0);
-//         average_position = get_detector_cog(detector);
-//         printf("Detector Center %.2f, %.2f, %.2f \n", average_position[0], average_position[1], average_position[2]);
-
-//         simTree=(TTree*) fp->Get("AraTree2");
-//         if(!simTree) { std::cerr << "Can't find AraTree2\n"; return -1; }
-//         simTree->SetBranchAddress("event", &eventPtr);
-//         simTree->SetBranchAddress("report", &reportPtr);
-//     }
-    
+    std::vector<double> average_position;    
     
     //Trying condition where it checks for usefulAtriStation branch and imports according to that.
     if(!simSettingsTree) { 
@@ -430,11 +273,12 @@ int main(int argc, char **argv)
     // sim like
     else {
         dataLike = false;
+        // dataLike = true;  //Setting this to true for troubleshooting.  TODO: fix this
+        calibrated = true;
         std::cerr << "AraTree exists.  Importing as simulated data.\n";
         eventTree->SetBranchAddress("UsefulAtriStationEvent", &usefulAtriEvPtr);
-        weight;
+        // weight;
         eventTree->SetBranchAddress("weight", &weight);
-        // Detector *detector = 0;
         simSettingsTree=(TTree*) fp->Get("AraTree");
         if(!simSettingsTree) { std::cerr << "Can't find AraTree\n"; return -1; }
         simSettingsTree->SetBranchAddress("detector", &detector);
@@ -454,9 +298,9 @@ int main(int argc, char **argv)
     printf("Input files loaded. Set up ray tracing business\n");
     printf("------------------\n");
     
-    // for(Long64_t event=0;event<numEntries;event++) {
+    for(Long64_t event=0;event<numEntries;event++) {
     // for(Long64_t event=53530;event<53539;event++) {  //Debugging and running over events near desired event to save time in loop.
-    for(Long64_t event=650;event<700;event++) {  //Debugging and running over events enar desired event to save time in loop.    
+    // for(Long64_t event=650;event<700;event++) {  //Debugging and running over events enar desired event to save time in loop.    
         fp->cd();
         eventTree->GetEntry(event);
         // if (rawAtriEvPtr->eventNumber != 53535){  //Test for A4 Run 6128
@@ -467,9 +311,9 @@ int main(int argc, char **argv)
         //     continue;
         // }
         
-        if (rawAtriEvPtr->eventNumber != 679){  //Test for A2 Run 12559
-            continue;
-        }        
+        // if (rawAtriEvPtr->eventNumber != 679){  //Test for A2 Run 12559
+        //     continue;
+        // }        
         
         
         if (not calibrated) {
@@ -512,10 +356,6 @@ int main(int argc, char **argv)
         //TCanvas for the raw waveform separated by channel
         TCanvas *c = new TCanvas("","", 1600, 1600);
         c->Divide(4,4);
-        
-        
-        
-      
         
         //TODO: Implement independent loop for double peak finder that checks parter VPol and HPol channels to find the cutoff times.
         for (int i=0; i<8; i++){
@@ -730,8 +570,8 @@ int main(int argc, char **argv)
         double the_snr_h = snrs_h[2];
         
         //Adding condition where if the SNR is less than 8, we bypass the event.
-        cout << "the_snr_v = " << the_snr_v << endl;
-        cout << "the_snr_h = " << the_snr_h << endl;
+        // cout << "the_snr_v = " << the_snr_v << endl;
+        // cout << "the_snr_h = " << the_snr_h << endl;
         if (the_snr_v < 8 and the_snr_h < 8) {
             cout << "Event below SNR threshold.  Bypassing event." << endl;
             v_snr_out = the_snr_v;
@@ -837,8 +677,10 @@ int main(int argc, char **argv)
             if(element < 2){ peakPol.push_back(0); }
             else{peakPol.push_back(1);}
             
-            if(element==0 || element ==2){ peakSol.push_back(0);}
-            else if(element==1 || element ==3 ){ peakSol.push_back(1);}
+            // if(element==0 || element ==2){ peakSol.push_back(0);}
+            // else if(element==1 || element ==3 ){ peakSol.push_back(1);}
+            //Forcing direct solution in the reconstruction
+            peakSol.push_back(0);
 
             printf("    Correlated radius %.2f, Corr %.4f \n",radii[r], peakCorr);
 
@@ -864,22 +706,6 @@ int main(int argc, char **argv)
         bestCorr_out = peakCorrs[element];
         bestR_out = radii[element];
         bestSol_out = peakSol[element];
-        for(int i=0; i<16; i++){
-
-            int this_binTheta, this_binPhi;
-            theCorrelators[element]->ConvertAngleToBins(peakThetas[element], peakPhis[element], 
-                this_binTheta, this_binPhi);
-
-            double this_arrivalTheta, this_arrivalPhi;
-            theCorrelators[element]->LookupArrivalAngles(i, peakSol[element], 
-                this_binTheta, this_binPhi,
-                this_arrivalTheta, this_arrivalPhi
-            );
-            double this_arrivalTime = theCorrelators[element]->LookupArrivalTimes(i, peakSol[element], this_binTheta, this_binPhi);
-            reco_arrivalThetas_out[i] = this_arrivalTheta*180/PI; //Previous saved in radians, Converting to degrees - JCF 4/11/2024
-            reco_arrivalPhis_out[i] = this_arrivalPhi*180/PI; 
-            arrivalTimes_out[i] = this_arrivalTime;
-        }
         
         // then the true quantities (if applicable)
         if (not dataLike) {
@@ -897,12 +723,58 @@ int main(int argc, char **argv)
                 true_arrivalThetas_out[i] = this_true_theta*180/PI;
                 true_arrivalPhis_out[i] = this_true_phi*180/PI; 
             }
-            trueTheta_out = diff_true.Theta() * TMath::RadToDeg();  //Converted to match the zenith in the reconstruction calculation.
-            truePhi_out = diff_true.Phi() * TMath::RadToDeg();
+            trueTheta_out = 90 - diff_true.Theta() * TMath::RadToDeg();  //Converted to match the zenith in the reconstruction calculation.
+            truePhi_out = (std::fmod((diff_true.Phi() * TMath::RadToDeg())+180,360))-180;
             trueR_out = diff_true.R();
             likelySol_out = likely_sol; //The output for this is a large negative number, even when likely_sol is hardcoded to zero.
             
+        }        
+        
+        for(int i=0; i<16; i++){
+
+            int this_binTheta, this_binPhi;
+            if (useMcTruth) {
+                theCorrelators[element]->ConvertAngleToBins(trueTheta_out, truePhi_out, 
+                    this_binTheta, this_binPhi);
+            }
+            else {
+                theCorrelators[element]->ConvertAngleToBins(peakThetas[element], peakPhis[element], 
+                    this_binTheta, this_binPhi);
+            }
+
+            double this_arrivalTheta, this_arrivalPhi;
+            theCorrelators[element]->LookupArrivalAngles(i, peakSol[element], 
+                this_binTheta, this_binPhi,
+                this_arrivalTheta, this_arrivalPhi
+            );
+            double this_arrivalTime = theCorrelators[element]->LookupArrivalTimes(i, peakSol[element], this_binTheta, this_binPhi);
+            reco_arrivalThetas_out[i] = this_arrivalTheta*180/PI; //Previous saved in radians, Converting to degrees - JCF 4/11/2024
+            reco_arrivalPhis_out[i] = this_arrivalPhi*180/PI; 
+            arrivalTimes_out[i] = this_arrivalTime;
         }
+        
+//         // then the true quantities (if applicable)
+//         if (not dataLike) {
+//             // int likely_sol = guess_triggering_solution(eventPtr, reportPtr);
+//             int likely_sol = 0;  //Forcing solution to zero since we set up the double peak finder to look for the D pulse.
+//             std::map<int, double> thetas_truth = get_value_from_mc_truth("theta", likely_sol, reportPtr);
+//             std::map<int, double> phis_truth = get_value_from_mc_truth("phi", likely_sol, reportPtr);
+        
+//             for(int i=0; i<16; i++){
+//                 double this_true_theta = thetas_truth.find(i)->second;
+//                 double this_true_phi = phis_truth.find(i)->second;
+//                 // printf("  Ant %d, True Arrival Theta %.2f, Reco Arrival Phi %.2f \n",
+//                 //     i, this_true_theta, this_true_phi
+//                 // );
+//                 true_arrivalThetas_out[i] = this_true_theta*180/PI;
+//                 true_arrivalPhis_out[i] = this_true_phi*180/PI; 
+//             }
+//             trueTheta_out = diff_true.Theta() * TMath::RadToDeg();  //Converted to match the zenith in the reconstruction calculation.
+//             truePhi_out = diff_true.Phi() * TMath::RadToDeg();
+//             trueR_out = diff_true.R();
+//             likelySol_out = likely_sol; //The output for this is a large negative number, even when likely_sol is hardcoded to zero.
+            
+//         }
         
         weight_out = weight;
         for(int i=0; i<16; i++){

@@ -18,4 +18,4 @@ station=4
 run=6128
 index=723
 numChannelsPassed=3
-./samplePurifier $run $numChannelsPassed ${rawDirectory}/setup_KU_antenna_A$station.txt ${rawDirectory}A$station/run_00$run/event00${run}.root .
+./samplePurifier ${run}__$index $numChannelsPassed ${rawDirectory}/setup_KU_antenna_A$station.txt ${rawDirectory}A$station/run_00$run/split/event00${run}__$index.root .
