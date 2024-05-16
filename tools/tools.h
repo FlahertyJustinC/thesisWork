@@ -26,6 +26,7 @@ using namespace std;
 #include "Math/InterpolationTypes.h"
 
 #include "FFTtools.h"
+#include "Tools.h"
 
 double integrateBinPower( TGraph *plot, int numBinsToIntegrate, vector<double> &integratedBins)
 {
@@ -155,13 +156,13 @@ void getAbsMaximum_N(vector<TGraph*> graphs, int nPeaks, double timeApart, vecto
 void getExcludedChannels(std::vector<int> &excludedChannels, Settings *settings1, Detector *detector) {
     if (settings1->DETECTOR_STATION==2){
         cout << "Using station 2.  Excluding channels 1 and 3 in addition to the masking." << endl;
-        // excludedChannels.push_back(1);  //Removing extra A2 channels as the D-pulse gets clipped.
-        // excludedChannels.push_back(3); 
-        // excludedChannels.push_back(5); 
-        // excludedChannels.push_back(6); 
+        excludedChannels.push_back(1);  //Removing extra A2 channels as the D-pulse gets clipped.
+        excludedChannels.push_back(3); 
+        excludedChannels.push_back(5); 
+        excludedChannels.push_back(6); 
         //Testing keeping flat channels in CSW histogram
-        excludedChannels.push_back(0);
-        excludedChannels.push_back(2);
+        // excludedChannels.push_back(0);
+        // excludedChannels.push_back(2);
     }    
     if (settings1->DETECTOR_STATION==4){
         cout << "Using station 4.  Excluding channels 0,4,8 in addition to the masking." << endl;
@@ -339,6 +340,203 @@ void calculateCSW(UsefulAtriStationEvent *usefulAtriEvPtr, std::vector<int> excl
     
 }
 
-void wienerDeconvolution() {
+void createFFTarrays(double* voltage, double* time, Settings *settings1, double* V_forfft, double* T_forfft, int waveform_bin, int Nnew){
+    double dT_forfft = time[1] - time[0];
+
+    for (int n = 0; n < Nnew; n++)
+    {
+        T_forfft[n] = time[waveform_bin / 2] - (dT_forfft *(double)(Nnew / 2 - n));
+
+        if ((n >= Nnew / 2 - waveform_bin / 2) &&
+            (n < Nnew / 2 + waveform_bin / 2))
+        {
+            V_forfft[n] = voltage[n - (Nnew / 2 - waveform_bin / 2)];
+        }
+        else
+            V_forfft[n] = 0.;
+    }         
+}
+
+void wienerDeconvolution(double &vm_real, double &vm_imag, double corr_real, double corr_imag, double psdSnr) {
+    double corr_magnitudeSquared = corr_real*corr_real + corr_imag*corr_imag;
     
+    double secondTerm = (1 / (1 + corr_magnitudeSquared/psdSnr));
+    
+    // cout << "psdSnr = " << psdSnr << endl;
+    // cout << "corr_real = " << corr_real << endl;
+    // cout << "corr_imag = " << corr_imag << endl;
+    // cout << "corr_magnitudeSquared = " << corr_magnitudeSquared << endl;
+    // cout << "secondTerm = " << secondTerm << endl;
+    // cout << "corr_real*secondTerm = " << corr_real*secondTerm << endl;
+    // cout << "corr_imag*secondTerm = " << corr_imag*secondTerm << endl;
+    
+    // double realOut = (vm_real*corr_real - vm_imag*corr_imag)*secondTerm;
+    // double imagOut = (vm_imag*corr_real + vm_real*corr_imag)*secondTerm;
+    
+    double realOut = vm_real*secondTerm;
+    double imagOut = vm_imag*secondTerm;
+    
+    if (std::isinf(corr_magnitudeSquared) or std::isnan(corr_magnitudeSquared)) {
+        vm_real = 0;
+        vm_imag = 0;        
+    }
+    else {
+        vm_real = realOut;
+        vm_imag = imagOut;
+    }
+}
+
+void wienerDeconvolution2(double &vm_real, double &vm_imag, double corr_real, double corr_imag, double psdSnr) {
+    double corr_magnitudeSquared = corr_real*corr_real + corr_imag*corr_imag;
+    
+    double secondTerm = (1 / (1 + 1/(corr_magnitudeSquared*psdSnr)));
+    
+    // cout << "corr_real = " << corr_real << endl;
+    // cout << "corr_imag = " << corr_imag << endl;
+    // cout << "secondTerm = " << secondTerm << endl;
+    
+    double realOut = (vm_real*corr_real + vm_imag*corr_imag)/corr_magnitudeSquared*secondTerm;
+    double imagOut = (vm_imag*corr_real - vm_real*corr_imag)/corr_magnitudeSquared*secondTerm;
+    
+    if (std::isinf(1/corr_magnitudeSquared) or std::isnan(1/corr_magnitudeSquared) or std::isnan(realOut*realOut+imagOut*imagOut)) {
+        vm_real = 0;
+        vm_imag = 0;        
+    }
+    else {
+        vm_real = realOut;
+        vm_imag = imagOut;
+    }
+}
+
+void getPowerSpectrumSNR(TGraph *gr, double peakTime, int waveform_bin, int Nnew, Settings *settings1, double* snrPsd, double* freqPsd, double dt=0.5, double sampleNs=80) {
+    //Initialize TGraphs for noise and signal
+    TGraph *grNoise;
+    TGraph *grSignal;
+    
+    double tNoiseMin;
+    double tNoiseMax;
+    double tSignalMin = peakTime-20;
+    double tSignalMax = peakTime+80;
+    
+    // cout << "Initial gr = " << gr->GetN() << endl;
+    
+    //Check if peakTime is in the sample region at beginning of waveform
+    if (peakTime < gr->GetX()[int(sampleNs/dt)]) {
+        // cout << "aaa" << endl;
+        // grNoise = FFTtools::cropWave(gr, gr->GetX()[gr->GetN()-1] - sampleNs, gr->GetX()[gr->GetN()-1]);
+        tNoiseMin = gr->GetX()[gr->GetN()-1] - sampleNs + dt;
+        tNoiseMax = gr->GetX()[gr->GetN()-1];
+    }
+    else {
+        // cout << "bbb" << endl;
+        // grNoise = FFTtools::cropWave(gr, gr->GetX()[0], gr->GetX()[int(sampleNs/dt)-1]);
+        tNoiseMin = gr->GetX()[0];
+        tNoiseMax = gr->GetX()[0] + sampleNs-dt;
+        
+    }
+    // cout << "tNoiseMin = " << tNoiseMin << endl;
+    // cout << "tNoiseMax = " << tNoiseMax << endl;
+    // cout << "tSignalMin = " << tSignalMin << endl;
+    // cout << "tSignalMax = " << tSignalMax << endl;
+    grNoise = FFTtools::cropWave(gr, tNoiseMin, tNoiseMax);
+    grSignal = FFTtools::cropWave(gr, tSignalMin, tSignalMax);
+    
+    // cout << "Initial grSignal = " << grSignal->GetN() << endl;
+    // cout << "Initial grNoise = " << grNoise->GetN() << endl;    
+    
+    //Pad waveforms to match the frequency binning used in the deconvolution
+    grSignal = FFTtools::padWaveToLength(grSignal, settings1->NFOUR/2);
+    grNoise = FFTtools::padWaveToLength(grNoise, settings1->NFOUR/2);
+    // cout << "Cropped grSignal = " << grSignal->GetN() << endl;
+    // cout << "Cropped grNoise = " << grNoise->GetN() << endl;
+    
+    //Make PSD for signal and noise sample
+    TGraph *grPsdSignal = FFTtools::makePowerSpectrumMilliVoltsNanoSeconds(grSignal);
+    TGraph *grPsdNoise = FFTtools::makePowerSpectrumMilliVoltsNanoSeconds(grNoise);
+    
+    //Push PSD to vectors for interpolation into the frequency binning used in AraSim
+    std::vector<double> psdSignal;
+    std::vector<double> psdNoise;
+    
+    std::vector<double> freqSignal;
+    std::vector<double> freqNoise;    
+    
+    std::vector<double> snrVec;
+    std::vector<double> freqVec;  
+    
+    //Loop over Tgraphs and push PSD's to vectors
+    for (int i=0; i<grPsdSignal->GetN(); i++){
+        
+        double this_freqSignal = grPsdSignal->GetX()[i];        
+        double this_psdSignal = grPsdSignal->GetY()[i];
+        
+        double this_freqNoise = grPsdNoise->GetX()[i]; 
+        double this_psdNoise = grPsdNoise->GetY()[i]; 
+        
+        psdSignal.push_back(this_psdSignal);
+        freqSignal.push_back(this_freqSignal);
+        
+        psdNoise.push_back(this_psdNoise);
+        freqNoise.push_back(this_freqNoise);          
+    }
+    
+    //Create interpolators of the noise and signal vectors
+    ROOT::Math::Interpolator signalInterp(freqSignal,psdSignal,ROOT::Math::Interpolation::kAKIMA);
+    ROOT::Math::Interpolator noiseInterp(freqNoise,psdNoise,ROOT::Math::Interpolation::kAKIMA);
+    
+    //Get frequency interval for interpolation
+    double df = freqSignal[1]-freqSignal[0];
+    
+    //Interpolate signal and noise and calculate SNR.
+    for (int k=0; k<Nnew/2; k++) {
+        freqPsd[k] = freqSignal[k] + df/2;
+        double this_interpSignal = signalInterp.Eval(freqPsd[k]);
+        double this_interpNoise = noiseInterp.Eval(freqPsd[k]);
+        if (this_interpNoise == 0) {
+            snrPsd[k] = this_interpSignal/1;
+        }
+        else {
+            snrPsd[k] = this_interpSignal/this_interpNoise;
+        }
+    }  
+    
+    
+    // //Loop over frequency bins and calculate SNR
+    // for (int i=0; i<psdSignal->GetN(); i++){
+    //     double this_freq = psdSignal->GetX()[i];        
+    //     double this_psdSignal = psdSignal->GetY()[i];
+    //     double this_psdNoise = psdNoise->GetY()[i];
+    //     // snrPsd[i] = this_psdSignal/this_psdNoise;
+    //     // freqPsd[i] = this_freq;
+    //     snrVec.push_back(this_psdSignal/this_psdNoise);
+    //     freqVec.push_back(this_freq);
+    //     // cout << "***********************************" << endl;
+    //     // cout << "this_psdSignal = " << this_psdSignal << endl;
+    //     // cout << "this_psdNoise = " << this_psdNoise << endl;
+    //     // cout << "this_psdSignal/this_psdNoise = " << this_psdSignal/this_psdNoise << endl;
+    //     // cout << "snrVec[i] = " << snrVec[i] << endl;
+    // }
+    
+//     cout << "psdSignal = " << endl;
+//     for (int i=0; i<psdSignal->GetN(); i++){
+//         cout << psdSignal->GetY()[i] << ", ";     
+//     }
+//     cout << endl;
+    
+//     cout << "psdNoise = " << endl;
+//     for (int i=0; i<psdNoise->GetN(); i++){
+//         cout << psdNoise->GetY()[i] << ", ";     
+//     }
+//     cout << endl;    
+    
+//     //Create interpolator of the SNR for remapping onto the middle of the frequency bin
+//     ROOT::Math::Interpolator freqInterp(freqVec,snrVec,ROOT::Math::Interpolation::kAKIMA);
+    
+//     //Get frequency interval for interpolation
+//     double df = freqVec[1]-freqVec[0];
+    
+//     for (int k=0; k<Nnew/2; k++) {
+//         freqPsd[k] = freqVec[k] + df/2;
+//         snrPsd[k] = freqInterp.Eval(freqPsd[k]);
+//     }  
 }
