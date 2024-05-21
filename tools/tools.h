@@ -197,7 +197,7 @@ double calculateNoiseRMS(TGraph *gr, int sampleNumber=100) {
     }
     double noiseRms = TMath::RMS(totalSampleNumber,voltageSubset);
     
-    cout << "noiseRms = " << noiseRms << endl;
+    // cout << "noiseRms = " << noiseRms << endl;
     
     if (noiseRms == 0) {
         noiseRms=1;
@@ -207,7 +207,7 @@ double calculateNoiseRMS(TGraph *gr, int sampleNumber=100) {
 }
 
 //Creating CSW function
-void calculateCSW(UsefulAtriStationEvent *usefulAtriEvPtr, std::vector<int> excludedChannels, double cropTimes[16], double arrivalTimes[16], TGraph *cswVpolOut, TGraph *cswHpolOut, double dt=0.5) {
+void calculateCSW(UsefulAtriStationEvent *usefulAtriEvPtr, std::vector<int> excludedChannels, double cropTimes[16], double arrivalTimes[16], TGraph *cswVpolOut, TGraph *cswHpolOut, double dt=0.5, bool debugMode=false) {
     //Harc-coding interpolation interval for now.
     // const double dt = 0.5;
     //Loop over excluded channels to form excluded pairs list
@@ -244,6 +244,11 @@ void calculateCSW(UsefulAtriStationEvent *usefulAtriEvPtr, std::vector<int> excl
         gr = usefulAtriEvPtr->getGraphFromRFChan(i);
         //Crop to D-pulse only.
         gr = FFTtools::cropWave(gr, gr->GetX()[0], cropTimes[i]);
+        
+        if (debugMode){
+            cout << "i = " << i << endl;
+            cout << "cropTimes[i] = " << cropTimes[i]<< endl;    
+        }        
         //Interpolate to 0.5 ns
         gr = FFTtools::getInterpolatedGraph(gr,dt);        
 
@@ -256,14 +261,23 @@ void calculateCSW(UsefulAtriStationEvent *usefulAtriEvPtr, std::vector<int> excl
 
         bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
         if (not checkExcluded) {
-            // cout << "mins[i] = " << mins[i] << endl;
-            // cout << "maxes[i] = " << maxes[i] << endl;            
+            if (debugMode){
+                cout << "i = " << i << endl;
+                cout << "mins[i] = " << mins[i] << endl;
+                cout << "maxes[i] = " << maxes[i] << endl;      
+            }
             if (tMin < mins[i]) {tMin = mins[i];}
             if (tMax > maxes[i]) {tMax = maxes[i];}
-            // cout << "tMin = " << tMin << endl;
-            // cout << "tMax = " << tMax << endl; 
-            // cout << "*****************************" << endl;
+            if (debugMode) {
+                cout << "tMin = " << tMin << endl;
+                cout << "tMax = " << tMax << endl; 
+                cout << "*****************************" << endl;
+            }
         }
+        
+        //Extra padding of tMin and tMin to get it away from the edges
+        tMin += dt;
+        tMax -= dt;
 
         // else {
         //     cout << "Excluding channel " << i << endl;
@@ -321,7 +335,7 @@ void calculateCSW(UsefulAtriStationEvent *usefulAtriEvPtr, std::vector<int> excl
     }
     
     //Now loop over the time bins to sum the waveforms
-    for (int j=0; j<nT; j++) {
+    for (int j=0; j<nT-1; j++) {
         //Initilize time bin
         timeCsw[j] = tMin + j*dt;
         // //Initialize voltage bin
@@ -408,48 +422,68 @@ void wienerDeconvolution2(double &vm_real, double &vm_imag, double corr_real, do
     }
 }
 
-void getPowerSpectrumSNR(TGraph *gr, double peakTime, int waveform_bin, int Nnew, Settings *settings1, double* snrPsd, double* freqPsd, double dt=0.5, double sampleNs=80) {
+void getPowerSpectrumSNR(TGraph *gr, double peakTime, int waveform_bin, int Nnew, Settings *settings1, double* snrPsd, double* freqPsd, double dt=0.5, double sampleNs=80, bool debugMode=false) {
     //Initialize TGraphs for noise and signal
     TGraph *grNoise;
     TGraph *grSignal;
     
     double tNoiseMin;
     double tNoiseMax;
-    double tSignalMin = peakTime-20;
-    double tSignalMax = peakTime+80;
+    double tSignalMin = peakTime-0.25*sampleNs;
+    double tSignalMax = peakTime+0.75*sampleNs;
     
-    // cout << "Initial gr = " << gr->GetN() << endl;
+    if (debugMode) {
+        cout << "Initial gr = " << gr->GetN() << endl;
+        cout << "gr->GetX()[0] = " << gr->GetX()[0] << endl;
+        cout << "gr->GetX()[gr->GetN()-1] = " << gr->GetX()[gr->GetN()-1] << endl;
+    }
     
     //Check if peakTime is in the sample region at beginning of waveform
     if (peakTime < gr->GetX()[int(sampleNs/dt)]) {
         // cout << "aaa" << endl;
         // grNoise = FFTtools::cropWave(gr, gr->GetX()[gr->GetN()-1] - sampleNs, gr->GetX()[gr->GetN()-1]);
-        tNoiseMin = gr->GetX()[gr->GetN()-1] - sampleNs + dt;
-        tNoiseMax = gr->GetX()[gr->GetN()-1];
+        tNoiseMax = gr->GetX()[gr->GetN()-1]-dt;
+        tNoiseMin = tNoiseMax - sampleNs;
     }
     else {
         // cout << "bbb" << endl;
         // grNoise = FFTtools::cropWave(gr, gr->GetX()[0], gr->GetX()[int(sampleNs/dt)-1]);
-        tNoiseMin = gr->GetX()[0];
-        tNoiseMax = gr->GetX()[0] + sampleNs-dt;
+        tNoiseMin = gr->GetX()[0]+dt;
+        tNoiseMax = gr->GetX()[0] + sampleNs;
         
     }
-    // cout << "tNoiseMin = " << tNoiseMin << endl;
-    // cout << "tNoiseMax = " << tNoiseMax << endl;
-    // cout << "tSignalMin = " << tSignalMin << endl;
-    // cout << "tSignalMax = " << tSignalMax << endl;
+    
+    //Check if peakTime is too close to beginning or end of waveform.
+    if (tSignalMin < gr->GetX()[0]) {
+        tSignalMin = gr->GetX()[0]+dt;
+        tSignalMax = tSignalMin+sampleNs;
+            
+    }
+    else if (tSignalMax > gr->GetX()[gr->GetN()-1]) {
+        tSignalMax = gr->GetX()[gr->GetN()-1]-dt;
+        tSignalMin = tSignalMax-sampleNs;
+        
+    }    
+
     grNoise = FFTtools::cropWave(gr, tNoiseMin, tNoiseMax);
     grSignal = FFTtools::cropWave(gr, tSignalMin, tSignalMax);
-    
-    // cout << "Initial grSignal = " << grSignal->GetN() << endl;
-    // cout << "Initial grNoise = " << grNoise->GetN() << endl;    
+    if (debugMode) {
+        cout << "tNoiseMin = " << tNoiseMin << endl;
+        cout << "tNoiseMax = " << tNoiseMax << endl;
+        cout << "tSignalMin = " << tSignalMin << endl;
+        cout << "tSignalMax = " << tSignalMax << endl;
+        cout << "Initial grSignal = " << grSignal->GetN() << endl;
+        cout << "Initial grNoise = " << grNoise->GetN() << endl;            
+    }
+
     
     //Pad waveforms to match the frequency binning used in the deconvolution
     grSignal = FFTtools::padWaveToLength(grSignal, settings1->NFOUR/2);
     grNoise = FFTtools::padWaveToLength(grNoise, settings1->NFOUR/2);
-    // cout << "Cropped grSignal = " << grSignal->GetN() << endl;
-    // cout << "Cropped grNoise = " << grNoise->GetN() << endl;
-    
+    if (debugMode) {
+        cout << "Cropped grSignal = " << grSignal->GetN() << endl;
+        cout << "Cropped grNoise = " << grNoise->GetN() << endl;
+    }
     //Make PSD for signal and noise sample
     TGraph *grPsdSignal = FFTtools::makePowerSpectrumMilliVoltsNanoSeconds(grSignal);
     TGraph *grPsdNoise = FFTtools::makePowerSpectrumMilliVoltsNanoSeconds(grNoise);

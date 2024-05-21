@@ -31,30 +31,32 @@ UsefulAtriStationEvent *usefulAtriEvPtrOut;
 bool debugMode = false;
 // int passedChannelThreshold = 3;
 
-double calculateNoiseRMS(TGraph *gr, int sampleNumber=100) {
-    int totalSampleNumber = abs(sampleNumber);
-    int waveformLength = gr->GetN();
-    double voltageSubset[totalSampleNumber];
-    if (sampleNumber<0){
-        //Loop over beginning of waveform for noise
-        for(int j=0; j<totalSampleNumber; j++){
-            voltageSubset[j] = gr->GetY()[j];
-        }
-    }
-    else {
-        //Loop over end of waveform for noise
-        for(int j=0; j<totalSampleNumber; j++){
-            voltageSubset[j] = gr->GetY()[waveformLength-1-j];
-        }        
-    }
-    double noiseRms = TMath::RMS(totalSampleNumber,voltageSubset);
+// double calculateNoiseRMS(TGraph *gr, int sampleNumber=100) {
+//     int totalSampleNumber = abs(sampleNumber);
+//     int waveformLength = gr->GetN();
+//     double voltageSubset[totalSampleNumber];
+//     if (sampleNumber<0){
+//         //Loop over beginning of waveform for noise
+//         for(int j=0; j<totalSampleNumber; j++){
+//             voltageSubset[j] = gr->GetY()[j];
+//         }
+//     }
+//     else {
+//         //Loop over end of waveform for noise
+//         for(int j=0; j<totalSampleNumber; j++){
+//             voltageSubset[j] = gr->GetY()[waveformLength-1-j];
+//         }        
+//     }
+//     double noiseRms = TMath::RMS(totalSampleNumber,voltageSubset);
     
-    if (noiseRms == 0) {
-        noiseRms=1;
-    }
+//     // cout << "noiseRms = " << noiseRms << endl;
     
-    return noiseRms;
-}
+//     if (noiseRms == 0) {
+//         noiseRms=1;
+//     }
+    
+//     return noiseRms;
+// }
 
 int main(int argc, char **argv)
 {
@@ -174,9 +176,12 @@ int main(int argc, char **argv)
             usefulAtriEvPtr = new UsefulAtriStationEvent(rawAtriEvPtr, AraCalType::kLatestCalib);
         }
         // cout << "*";
-        if (event%10 == 0) {
+        if (event%1000 == 0) {
             std::cout<<"Event number: \t"<<event<<std::endl;        
         }
+        if (event%100 == 0) {
+            std::cout<<"*"<<endl;;        
+        }        
         
         std::map<int, TGraph*> interpolatedWaveforms;
         std::vector<double> noiseRms(16);
@@ -318,7 +323,6 @@ int main(int argc, char **argv)
         // delete usefulAtriEvPtrOut;
         // delete usefulAtriEvPtr;
         // delete interpolatedWaveforms;
-
     
     }
 
@@ -327,9 +331,11 @@ int main(int argc, char **argv)
     fpOut->Close();
     delete fpOut;
 
-    cout << "*************************" << endl;
+    cout << "*************************************************************************" << endl;
     cout << passedEventCounter << " of " << numEntries << " passed." << endl;
-    cout<<"Output written to:\t " <<outfile_name<<endl;
+    cout << "Output written to:\t " <<outfile_name<<endl;
+    cout << "*************************************************************************" << endl;
+    
     
     fp->Close();
     delete fp;

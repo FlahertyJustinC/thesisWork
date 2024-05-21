@@ -71,6 +71,7 @@ bool separateCsw = true;
 bool useMCTruth = true;
 bool forceSinglePeak = true;
 bool weinerCorrection = true;
+double sampleNs=80;  //Sample window for noise and signal in the PSD SNR calculation.
 // double dt=0.1; //Sample rate for interpolation
 
 int main(int argc, char **argv)
@@ -118,8 +119,10 @@ int main(int argc, char **argv)
     if(!simSettingsTree) { 
         dataLike = true;            
         std::cerr << "Can't find AraTree.  Importing as real data.\n";
-        TTree* atriExists=(TTree*) fp->Get("UsefulAtriStationEvent");
-        if (!atriExists) {
+        // TTree* atriExists=(TTree*) fp->Get("UsefulAtriStationEvent");
+        // if (!atriExists) {
+        //Checks if usefulAtri branch exists.  If not, fata gets imported as uncalibrated.
+        if (not eventTree->GetBranch("UsefulAtriStationEvent")) {
             calibrated = false;
             cout << "Can't find UsefulAtriStationEvent Tree.  Importing as uncalibrated." << endl;
             eventTree->SetBranchAddress("event",&rawAtriEvPtr);
@@ -224,22 +227,30 @@ int main(int argc, char **argv)
      
     
     //Loop over events
-    int loopedEntries;
+    // int loopedEntries = numEntries;
+    int loopStart;
+    int loopEnd;
     if (debugMode) {
-        loopedEntries=1;
+        loopStart=0;
+        loopEnd=1;
     }
     else {
-        loopedEntries=numEntries;
+        loopStart=0;
+        loopEnd=numEntries;
     }
     
-    for(Long64_t event=0;event<loopedEntries;event++) {
-    // for(Long64_t event=0;event<1;event++) {
+    // for(Long64_t event=0;event<loopedEntries;event++) {
+    for(Long64_t event=loopStart;event<loopEnd;event++) {
     // for(Long64_t event=679;event<680; event++) {  //Debugging and running over events enar desired event to save time in loop.      
     // for(Long64_t event=53530;event<53539;event++) {  //Debugging and running over events near desired event to save time in loop.    
         std::cout<<"Looking at event number "<<event<<std::endl;
         fp->cd();
 
         eventTree->GetEntry(event);
+        
+        // if (rawAtriEvPtr->eventNumber != 5572){  //Test for A4 Run 6136
+        //     continue;
+        // }  
 
         // if (rawAtriEvPtr->eventNumber != 53535){  //Test for A4 Run 6128
         //     continue;
@@ -310,15 +321,22 @@ int main(int argc, char **argv)
             
             //Importing the cutoff time between spicecore peaks
             double cutoffTimeChannel;
-            if (forceSinglePeak) {
-                cutoffTime[i] = time[waveform_bin-1]; //TODO: Adding this for debugging.  Be sure to remove.
-            }
+            // if (forceSinglePeak) {
+            //     cutoffTime[i] = time[waveform_bin-1]; //TODO: Adding this for debugging.  Be sure to remove.
+            // }
                
-            if (!cutoffTime) {
-                cutoffTimeChannel = time[waveform_bin-1];
-            } else {
-                cutoffTimeChannel = cutoffTime[i];
-            }            
+            if (!cutoffTime or forceSinglePeak) {
+                cout << "Using single-peak condition" << endl;
+                // cutoffTimeChannel = time[waveform_bin-1];
+                // cout << "cutoffTimeChannel = " << cutoffTimeChannel << endl;
+                // cout << "waveform_bin = " << waveform_bin << endl;
+                cutoffTime[i] = time[waveform_bin-1];
+                cout << "cutoffTime[i] = " << cutoffTime[i] << endl;
+                cout << "waveform_bin = " << waveform_bin << endl;                
+            } 
+            // else {
+            //     cutoffTimeChannel = cutoffTime[i];
+            // }            
     
             double freq_tmp, heff, antenna_theta, antenna_phi;  // values needed for apply antenna gain factor and prepare fft, trigger
             
@@ -333,7 +351,12 @@ int main(int argc, char **argv)
                 //Import RF angles using electric channel mapping
                 antenna_theta = reco_arrivalThetas[vertexRecoElectToRFChan[i]];//*180/PI;
                 antenna_phi = reco_arrivalPhis[vertexRecoElectToRFChan[i]];//*180/PI;              
-            }             
+            }
+            
+            if (debugMode) {
+                cout << "antenna_theta = " << antenna_theta << endl;
+                cout << "antenna_phi = " << antenna_phi << endl;
+            }
             
             //Calculate polarization vector that inverts the polarization factor (makes dot products equal to one)
             double newPol_vectorX = -sin(antenna_phi*PI/180);
@@ -390,9 +413,9 @@ int main(int argc, char **argv)
             double snrPsd[int(Nnew/2)];
             double freqPsd[int(Nnew/2)];
             // cout << "directPeakTimes[" << i << "] = " << directPeakTimes[i] << endl; 
-            getPowerSpectrumSNR(gr, directPeakTimes[i], waveform_bin, Nnew, settings1, snrPsd, freqPsd);
+            getPowerSpectrumSNR(gr, directPeakTimes[i], waveform_bin, Nnew, settings1, snrPsd, freqPsd, dt, sampleNs, debugMode);
             
-//             if (i == 0) {
+//             if (debugMode) {
 //                 cout << "snrPsd = " << endl;
 //                 for (int k=0; k<Nnew/2; k++) {
 //                     cout << snrPsd[k] << ", ";
@@ -413,13 +436,22 @@ int main(int argc, char **argv)
             // get spectrum with zero padded WF
             Tools::realft(V_forfft, 1, Nnew); 
             
+            // if (debugMode) {
+            //     cout << "*****************************" << endl;
+            //     cout << "V_forfft (before factors) = " << endl;
+            //     for (int n=0; n<Nnew/2; n++) {
+            //         cout << V_forfft[2*n] << " + i " << V_forfft[2*n+1] << ", ";
+            //     }
+            //     cout << endl;         
+            // }
+            
             dF_Nnew = 1. / ((double)(Nnew) *(dT_forfft) *1.e-9);    // in Hz
             
             // cout << "dF_Nnew = " << dF_Nnew << endl;
 
             freq_tmp = dF_Nnew *((double) Nnew / 2. + 0.5); // in Hz 0.5 to place the middle of the bin and avoid zero freq
             
-            // if (i == 0) {
+            // if (i == 9) {
             //     cout << "*****************************" << endl;
             //     cout << "freq = " << endl;
             //     for (int k=0; k<Nnew/2; k++) {
@@ -448,7 +480,12 @@ int main(int argc, char **argv)
                                             freq_tmp, nice);
                 // invert entire elect chain gain, phase
                 if (n > 0)
-                {                
+                {  
+                // if (debugMode) {
+                //     cout << "Before Elec " << endl;                    
+                //     cout <<  "V_forfft[2*n] = " <<  V_forfft[2*n] << endl;
+                //     cout <<  "V_forfft[2*n+1] = " <<  V_forfft[2*n+1] << endl;      
+                // }                           
                     report->InvertElect_Tdomain(
                         freq_tmp *1.e-6, 
                         detector, 
@@ -488,6 +525,11 @@ int main(int argc, char **argv)
                         gain_ch_no,
                         settings1);                    
                 }
+                // if (debugMode) {
+                //     cout << "After Elec, before Ant "<< endl;                    
+                //     cout <<  "V_forfft[2*n] = " <<  V_forfft[2*n] << endl;
+                //     cout <<  "V_forfft[2*n+1] = " <<  V_forfft[2*n+1] << endl;      
+                // }                                
                 if (n > 0)
                 {
                     report->InvertAntFactors_Tdomain(
@@ -546,11 +588,13 @@ int main(int argc, char **argv)
 
                 }
                 
-                // Quick and dirty hack to filter out frequencies above 850 MHz and below 100 MHz to match ARA's bandpass filter.         
-                // if (n<17) {
-                // cout << "realWeinerCorr = " << realWeinerCorr << endl;
-                // cout << "imagWeinerCorr = " << imagWeinerCorr << endl;
-                // }
+                // if (debugMode) {
+                //     cout << "After ant " << endl;
+                //     cout << "realWeinerCorr = " << realWeinerCorr << endl;
+                //     cout << "imagWeinerCorr = " << imagWeinerCorr << endl;                    
+                //     cout <<  "V_forfft[2*n] = " <<  V_forfft[2*n] << endl;
+                //     cout <<  "V_forfft[2*n+1] = " <<  V_forfft[2*n+1] << endl;      
+                // }                
                 
                 if (weinerCorrection) {
                     //Correction for weiner deconvolution
@@ -567,8 +611,7 @@ int main(int argc, char **argv)
                     }  
                 }
                 
-                // cout <<  "V_forfft[2*n] = " <<  V_forfft[2*n] << endl;
-                // cout <<  "V_forfft[2*n+1] = " <<  V_forfft[2*n+1] << endl;
+
   
                 
                 double weight = 1;  // Setting initial weight to one, then applying bandpass.  Weight is then multiplied by signal in this bin.
@@ -581,24 +624,34 @@ int main(int argc, char **argv)
             }   // end for freq bin
                             
             // now get time domain waveform back by inv fft  
-            
-            // cout << "*****************************" << endl;
-            // cout << "V_forfft = " << endl;
-            // for (int n=0; n<Nnew/2; n++) {
-            //     cout << V_forfft[2*n] << " + i " << V_forfft[2*n+1] << ", ";
+            // if (debugMode) {
+            //     cout << "*****************************" << endl;
+            //     cout << "V_forfft (before InvFFT) = " << endl;
+            //     for (int n=0; n<Nnew/2; n++) {
+            //         cout << V_forfft[2*n] << " + i " << V_forfft[2*n+1] << ", ";
+            //     }
+            //     cout << endl;         
             // }
-            // cout << endl;            
             
-            Tools::realft(V_forfft, -1, Nnew);            
+            Tools::realft(V_forfft, -1, Nnew);
+            
+            // if (debugMode) {
+            //     cout << "*****************************" << endl;
+            //     cout << "V_forfft (after InvFFT) = " << endl;
+            //     for (int n=0; n<Nnew/2; n++) {
+            //         cout << V_forfft[2*n] << " + i " << V_forfft[2*n+1] << ", ";
+            //     }
+            //     cout << endl;         
+            // }
             
             //TODO: Make this 160 more data-driven.  Shouldn't be hard-coded, but constants that can be changed by the user.
-            if (antenna_theta > 160 or antenna_theta < 90) {
-                cout << "Event outside of theta range.  Setting voltage to zero and moving to next event." << endl;
-                for (int i = 0; i < sizeof(V_forfft) / sizeof(V_forfft[0]); i++) {
-                  V_forfft[i] = 1;
-                }                
-                // continue;
-            }                 
+            // if (antenna_theta > 160 or antenna_theta < 90) {
+            //     cout << "Event outside of theta range.  Setting voltage to zero and moving to next event." << endl;
+            //     for (int i = 0; i < sizeof(V_forfft) / sizeof(V_forfft[0]); i++) {
+            //       V_forfft[i] = 1;
+            //     }                
+            //     // continue;
+            // }                 
             Tools::SincInterpolation(Nnew, T_forfft, V_forfft, settings1->NFOUR / 2, T_forint, volts_forint);   
                            
             
@@ -698,7 +751,7 @@ int main(int argc, char **argv)
         TGraph *cswVpol = new TGraph();
         TGraph *cswHpol = new TGraph();
         
-        calculateCSW(usefulAtriEvPtrOut, excludedChannels, cutoffTime, arrivalTimes, cswVpol, cswHpol, dt);
+        calculateCSW(usefulAtriEvPtrOut, excludedChannels, cutoffTime, arrivalTimes, cswVpol, cswHpol, dt, debugMode);
 
         if (debugMode) {
             cout << "Sizes of csw TGraphs: "<< endl;
@@ -801,6 +854,7 @@ int main(int argc, char **argv)
                 }
 
                 gr = FFTtools::getInterpolatedGraph(gr,dt);
+                // gr->GetXaxis()->SetLimits(16,22);
 
                 c2->cd(i+1); gPad->SetGrid(1,1);
                 gr->Draw();

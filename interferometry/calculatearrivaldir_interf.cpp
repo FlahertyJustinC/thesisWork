@@ -65,13 +65,13 @@ void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi,
 //     // 1950,
 //     // 2100, 
 //     // 2250, 
-//     // 2400, 
-//     2550 
-//     // 2700
-//     // 2850, 
-//     // 3000, 
-//     // 3150, 
-//     // 3300, 
+//     2400, 
+//     2550, 
+//     2700,
+//     2850, 
+//     3000, 
+//     3150, 
+//     3300
 //     // 3450, 
 //     // 3600, 
 //     // 3750, 
@@ -211,6 +211,8 @@ int main(int argc, char **argv)
     RaySolver *raySolver = new RaySolver;
     //End attempt at importing setup parameters
     
+    double dt = settings1->TIMESTEP*1e9;
+    
     // set up correlator and pairs
     RayTraceCorrelator *theCorrelators[numScanned];
     for(int r=0; r<numScanned; r++){
@@ -262,11 +264,14 @@ int main(int argc, char **argv)
     if(!simSettingsTree) { 
         dataLike = true;            
         std::cerr << "Can't find AraTree.  Importing as real data.\n";
-        TTree* atriExists=(TTree*) fp->Get("UsefulAtriStationEvent");
-        if (!atriExists) {
+        // TTree* atriExists=(TTree*) fp->Get("UsefulAtriStationEvent");
+        // if (!atriExists) {
+        //Checks if usefulAtri branch exists.  If not, fata gets imported as uncalibrated.
+        if (not eventTree->GetBranch("UsefulAtriStationEvent")) {
             calibrated = false;
             cout << "Can't find UsefulAtriStationEvent Tree.  Importing as uncalibrated." << endl;
             eventTree->SetBranchAddress("event",&rawAtriEvPtr);
+            // eventTree->SetBranchAddress("eventTree",&rawAtriEvPtr);
         }
         else {
             calibrated = true;
@@ -375,8 +380,8 @@ int main(int argc, char **argv)
             
             TGraph *grV = usefulAtriEvPtr->getGraphFromRFChan(i);
             TGraph *grH = usefulAtriEvPtr->getGraphFromRFChan(i+8);
-            TGraph *grIntV = FFTtools::getInterpolatedGraph(grV, 0.5);  //Real data interpolation
-            TGraph *grIntH = FFTtools::getInterpolatedGraph(grH, 0.5);  //Real data interpolation
+            TGraph *grIntV = FFTtools::getInterpolatedGraph(grV, dt);  //Real data interpolation
+            TGraph *grIntH = FFTtools::getInterpolatedGraph(grH, dt);  //Real data interpolation
             
 
  
@@ -596,13 +601,13 @@ int main(int argc, char **argv)
         //Adding condition where if the SNR is less than 8, we bypass the event.
         // cout << "the_snr_v = " << the_snr_v << endl;
         // cout << "the_snr_h = " << the_snr_h << endl;
-        if (the_snr_v < 8 and the_snr_h < 8) {
-            cout << "Event below SNR threshold.  Bypassing event." << endl;
-            v_snr_out = the_snr_v;
-            h_snr_out = the_snr_h;            
-            outTree->Fill();
-            continue;
-        }
+        // if (the_snr_v < 8 and the_snr_h < 8) {
+        //     cout << "Event below SNR threshold.  Bypassing event." << endl;
+        //     v_snr_out = the_snr_v;
+        //     h_snr_out = the_snr_h;            
+        //     outTree->Fill();
+        //     continue;
+        // }
         //End SNR cut.
 
         std::map<int, double> weights_V; // V weights
@@ -843,7 +848,7 @@ int main(int argc, char **argv)
 
                 cout << "Ch " << i << " time[0] = " << gr->GetX()[0] << endl;
                 
-                gr = FFTtools::getInterpolatedGraph(gr,0.5);
+                gr = FFTtools::getInterpolatedGraph(gr,dt);
                 // gr = FFTtools::getInterpolatedGraphFreqDom(gr,0.1);
 
                 cTimeshift->cd(i+1); gPad->SetGrid(1,1);
