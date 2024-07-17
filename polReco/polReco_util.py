@@ -1331,7 +1331,7 @@ def powerFromSoftTriggerNoDeconvolution(rawEvent, usefulEvent, ROOT):
     return power
 
 # def peakHilbert(rawEvent, usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=False, gainCorrection=None, tolerance=10, timeShift=14.1, debug=False, deconvolution=True, solution='D'):
-def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=False, gainCorrection=None, tolerance=10, timeShift=14.1, debug=False, deconvolution=True, solution='D', station=2, configuration=None):
+def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=False, gainCorrection=None, tolerance=10, timeShift=14.1, debug=False, deconvolution=True, solution='D', station=2, configuration=None, sampleRate=0.5):
     #TODO: Update this to find peak from HPol when HPol is larger than VPol, or by user command (some kind off flag)
     import ROOT
     from scipy.signal import hilbert
@@ -1372,7 +1372,7 @@ def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=Fa
     except AttributeError:
         cutoffTime = np.empty(16)
         for ch in range(0,16):
-            voltage, time = extractChannelWaveform(usefulEvent, ch)
+            voltage, time = extractChannelWaveform(usefulEvent, ch, sampleRate=sampleRate)
             cutoffTime[ch] = time[-1]
     #Debugging and apply gain balance before deconvolution - JCF 6/16/2023
     if (gainBalance):
@@ -1381,8 +1381,8 @@ def peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, gainBalance=Fa
     
     #TODO: Have this loop over channel pairs instead, so that we may find if VPol or HPol is stronger.    
     for channelPair in range(8):
-        voltageVpol, timeVpol = extractChannelWaveform(usefulEvent, channelPair)
-        voltageHpol, timeHpol = extractChannelWaveform(usefulEvent, channelPair+8)
+        voltageVpol, timeVpol = extractChannelWaveform(usefulEvent, channelPair, sampleRate=sampleRate)
+        voltageHpol, timeHpol = extractChannelWaveform(usefulEvent, channelPair+8, sampleRate=sampleRate)
         
         #Debugging and apply gain balance before deconvolution - JCF 6/16/2023
         if (gainBalance):
@@ -1764,7 +1764,7 @@ def plotWaveform(usefulEvent, FFT=False, channelPair=None, sharex=True, sharey=T
     return fig, ax
 
 #TODO: Write a simplified hilbert peak function that doesn't use any deconvolution or gain balancing.
-def peakHilbertSimple(usefulEvent, tolerance=10, timeShift=0, debug=False, solution='D'):
+def peakHilbertSimple(usefulEvent, tolerance=10, timeShift=0, debug=False, solution='D', sampleRate=0.5):
     #TODO: Update this to find peak from HPol when HPol is larger than VPol, or by user command (some kind off flag)
     import ROOT
     from scipy.signal import hilbert
@@ -1792,8 +1792,8 @@ def peakHilbertSimple(usefulEvent, tolerance=10, timeShift=0, debug=False, solut
     
     #TODO: Have this loop over channel pairs instead, so that we may find if VPol or HPol is stronger.    
     for channelPair in range(8):
-        voltageVpol, timeVpol = extractChannelWaveform(usefulEvent, channelPair)
-        voltageHpol, timeHpol = extractChannelWaveform(usefulEvent, channelPair+8)
+        voltageVpol, timeVpol = extractChannelWaveform(usefulEvent, channelPair, sampleRate=sampleRate)
+        voltageHpol, timeHpol = extractChannelWaveform(usefulEvent, channelPair+8, sampleRate=sampleRate)
         
         # print(voltageVpol[:50])
         
@@ -1839,13 +1839,13 @@ def peakHilbertSimple(usefulEvent, tolerance=10, timeShift=0, debug=False, solut
     
     return hilbertPeak, peakTime
 
-def powerFromWaveformSimple(usefulEvent, peakTime, tBelow=20, tAbove=60):
+def powerFromWaveformSimple(usefulEvent, peakTime, tBelow=20, tAbove=60, dt=0.5):
     import ROOT
     from scipy.signal import hilbert
     power = np.zeros(16)
     for channelPair in range(8):
-        voltageVpol, timeVpol = extractChannelWaveform(usefulEvent, channelPair)
-        voltageHpol, timeHpol = extractChannelWaveform(usefulEvent, channelPair+8)
+        voltageVpol, timeVpol = extractChannelWaveform(usefulEvent, channelPair, sampleRate=dt)
+        voltageHpol, timeHpol = extractChannelWaveform(usefulEvent, channelPair+8, sampleRate=dt)
         
         tMinV = peakTime[channelPair] - tBelow
         tMaxV = peakTime[channelPair] + tAbove
@@ -1857,6 +1857,19 @@ def powerFromWaveformSimple(usefulEvent, peakTime, tBelow=20, tAbove=60):
         
         power[channelPair] = np.sum(voltageVpol[timeMaskV]**2)
         power[channelPair+8] = np.sum(voltageHpol[timeMaskH]**2)
+        
+        if (power[channelPair] == 0 or power[channelPair+8] == 0):
+            print("peakTime = " + str(peakTime[channelPair]))
+            print("timeVpol.min() = " + str(timeVpol.min()))
+            print("timeVpol.max() = " + str(timeVpol.max()))
+            print("timeHpol.min() = " + str(timeHpol.min()))
+            print("timeHpol.max() = " + str(timeHpol.max()))
+            print("tMinV = " + str(tMinV))
+            print("tMaxV = " + str(tMaxV))
+            print("tMinH = " + str(tMinH))
+            print("tMaxH = " + str(tMaxH))
+            print("power[" + str(channelPair) + "] = " + str(power[channelPair]))
+            print("power[" + str(channelPair+8) + "] = " + str(power[channelPair+8]))
         
         
     return power
@@ -1915,3 +1928,43 @@ def plotWaveformMarkPeaks(usefulEvent, timeMarkers=None, runNumber=None, station
             for ch, axes in zip(channels, ax.flatten()):
                 axes.axvline(timeMarkers[ch], color='black', linestyle='--')    
     return fig, ax
+
+def getPulserDepth(usefulEvent):
+    import pytz
+    from datetime import datetime, timezone
+    import pandas as pd
+    try:
+        unixtimeTemp = usefulEvent.unixTime
+        date = datetime.utcfromtimestamp(unixtimeTemp)
+        #Convert date object from UTC to NZ local time
+        nz = pytz.timezone('NZ')
+        utc = pytz.timezone('UTC')
+        def utc_to_local(utc_dt):
+            return utc_dt.replace(tzinfo=timezone.utc).astimezone(tz=nz)
+
+        date = utc_to_local(date)
+        year = date.year
+        month = date.month
+        day = date.day
+
+        pulserDepthFile = "spicePulserDepthFiles/spicePulser_"+str(month)+str(day)+"Depth.txt"
+
+        depthFile = pd.read_csv(pulserDepthFile)
+        # print("Sourcing pulser depth from " + "./"+outputFolder+"/"+pulserDepthFile) #Debugging JCF 9/14/2022
+        time = pd.to_datetime(depthFile.NZ_Time, format='%H:%M')
+        time.head()
+        newTime = time.apply(lambda dt: dt.replace(day=day, month = month, year = year))
+        # newTime#Still in NZ local time. Need to translate to UTC
+        df = pd.DataFrame(1, index=newTime, columns=['X'])
+        import pytz
+        nz = pytz.timezone('NZ')
+        utc = pytz.timezone('UTC')
+        df.index = df.index.tz_localize(nz).tz_convert(utc)
+        unixTimeDepth = (df.index - pd.Timestamp("1970-01-01").tz_localize(utc)) // pd.Timedelta('1s')#This is unix time 
+        f = scipy.interpolate.interp1d(unixTimeDepth, depthFile.depth,bounds_error=False, fill_value=0.)
+        # print("Min Pulser Unix Time = " + str(unixTimeDepth.min()))
+        # print("Max Pulser Unix Time = " + str(unixTimeDepth.max()))
+        return float(f(usefulEvent.unixTime))
+    except OverflowError:
+        print("Unix time of event undefined.  Bypassing pulser depth calculation.")
+        return 0

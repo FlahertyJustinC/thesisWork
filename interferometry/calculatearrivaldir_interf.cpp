@@ -29,7 +29,13 @@ UsefulAtriStationEvent *usefulAtriEvPtr;
 #include "tools.h"
 
 bool debugMode = false;
-bool useMcTruth = true;
+bool useMcTruth = false;
+bool fineRadii = true;
+int debugEvent=0;
+double snrThreshold=5;
+double peakSeparation=50.0;  //Minimum separation between peaks.  Closest seperation is expected to be ~100 ns.
+// double peakSeparation=100.0;  //Minimum separation between peaks.  Closest seperation is expected to be ~100 ns. Testing 80ns as that's the approximate width of a pulse
+
 
 void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi, double &peakCorr) {
 
@@ -48,46 +54,46 @@ void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi,
 
 
 //TODO: make radii and numScanned a little more dynamic so that it doesn't have to be hardcoded.  Maybe had it scan the rt_tables folder to have ti compile a list of radii that match the station, then defining the radii array using those values?  numScanned would simply just be the length of radii[]. Should also have it scan AFTER the station number is declared.  4/6/2024
-// double radii[] = {
-//     //   0,  
-//     // 150,  
-//     // 300,  
-//     // 450,  
-//     // 600,  
-//     // 750,  
-//     // 900, 
-//     // 1050, 
-//     // 1200, 
-//     // 1350, 
-//     // 1500, 
-//     // 1650, 
-//     // 1800, 
-//     // 1950,
-//     // 2100, 
-//     // 2250, 
-//     2400, 
-//     2550, 
-//     2700,
-//     2850, 
-//     3000, 
-//     3150, 
-//     3300
-//     // 3450, 
-//     // 3600, 
-//     // 3750, 
-//     // 3900, 
-//     // 4050,
-//     // 4200, 
-//     // 4350, 
-//     // 4500, 
-//     // 4650, 
-//     // 4800, 
-//     // 4950
-// };
+double radiiOld[] = {
+    //   0,  
+    // 150,  
+    // 300,  
+    // 450,  
+    // 600,  
+    // 750,  
+    // 900, 
+    // 1050, 
+    // 1200, 
+    // 1350, 
+    // 1500, 
+    // 1650, 
+    // 1800, 
+    // 1950,
+    // 2100, 
+    // 2250, 
+    2400, 
+    2550, 
+    2700,
+    2850, 
+    3000, 
+    3150, 
+    3300
+    // 3450, 
+    // 3600, 
+    // 3750, 
+    // 3900, 
+    // 4050,
+    // 4200, 
+    // 4350, 
+    // 4500, 
+    // 4650, 
+    // 4800, 
+    // 4950
+};
 
-double radii[] = {2575};
+// double radii[] = {2575};
 
-const int numScanned = sizeof(radii)/sizeof(radii[0]);
+const int numScannedOld = sizeof(radiiOld)/sizeof(radiiOld[0]);
 
 int main(int argc, char **argv)
 {
@@ -96,6 +102,15 @@ int main(int argc, char **argv)
         std::cout << "e.g.\n" << argv[0] << " 2 http://www.hep.ucl.ac.uk/uhen/ara/monitor/root/run1841/event1841.root setup.txt\n";
         return 0;
     }
+    if (argc>6){
+        std::string action(argv[6]);
+        if(action == "debug") {
+            debugMode = true;
+        }
+    }
+    if (argc>7){
+        debugEvent = atoi(argv[7]);
+    }        
 
     int station = atoi(argv[1]);  //This will be made redundant when we include the setupfile. 4/6/2024
     char* runNum = argv[2];
@@ -110,6 +125,27 @@ int main(int argc, char **argv)
     if(!fpOut){ std::cerr<<"Cannot open output file "<<fpOut<<std::endl; return -1; }
 
     TTree *outTree = new TTree("vertexReco", "vertexReco");
+    
+    //Define radii for vertex Reco based on station being used.
+    std::vector<double> radii;
+    if (not fineRadii) {
+        for (int r=0; r<numScannedOld; r++) {
+            radii.push_back(radiiOld[r]);
+        }
+    }      
+    else if (station == 2) {
+        for (int r=2390; r<2930; r+=10) {
+            radii.push_back(r);
+        }
+    }
+    else if (station == 4) {
+        for (int r=3170; r<3600; r+=10) {
+            radii.push_back(r);
+        }
+    }  
+
+    
+    const int numScanned = radii.size();
 
     double peakCorrs_out[numScanned];
     double peakThetas_out[numScanned];
@@ -123,6 +159,8 @@ int main(int argc, char **argv)
     int bestSol_out;
     double reco_arrivalThetas_out[16];
     double reco_arrivalPhis_out[16];
+    double reco_launchThetas_out[16];
+    double reco_launchPhis_out[16];    
     double arrivalTimes_out[16];
 
     double trueTheta_out;
@@ -131,6 +169,8 @@ int main(int argc, char **argv)
     int likelySol_out;
     double true_arrivalThetas_out[16];
     double true_arrivalPhis_out[16];
+    double true_launchThetas_out[16];
+    double true_launchPhis_out[16];    
     double cutoffTime[16]; 
     double directPeakTimes[16];
     double refPeakTimes[16];
@@ -157,6 +197,8 @@ int main(int argc, char **argv)
     outTree->Branch("bestSol", &bestSol_out, "bestSol_out/I");
     outTree->Branch("reco_arrivalThetas", reco_arrivalThetas_out, "reco_arrivalThetas_out[16]/D");
     outTree->Branch("reco_arrivalPhis", reco_arrivalPhis_out, "reco_arrivalPhis_out[16]/D");
+    outTree->Branch("reco_launchThetas", reco_launchThetas_out, "reco_launchThetas_out[16]/D");
+    outTree->Branch("reco_launchPhis", reco_launchPhis_out, "reco_launchPhis_out[16]/D");    
     outTree->Branch("arrivalTimes", arrivalTimes_out, "arrivalTimes_out[16]/D");
 
     //These are simulation specific, and should be set to zero or delete if using a real data reconstruction
@@ -166,6 +208,8 @@ int main(int argc, char **argv)
     outTree->Branch("trueSol", &likelySol_out, "likelySol_out/D");
     outTree->Branch("true_arrivalThetas", true_arrivalThetas_out, "true_arrivalThetas_out[16]/D");
     outTree->Branch("true_arrivalPhis", true_arrivalPhis_out, "true_arrivalPhis_out[16]/D");
+    outTree->Branch("true_launchThetas", true_launchThetas_out, "true_launchThetas_out[16]/D");
+    outTree->Branch("true_launchPhis", true_launchPhis_out, "true_launchPhis_out[16]/D");    
     
     outTree->Branch("weight", &weight_out, "weight_out/D");
     outTree->Branch("snrs", snrs_out, "snrs_out[16]/D");
@@ -213,6 +257,8 @@ int main(int argc, char **argv)
     
     double dt = settings1->TIMESTEP*1e9;
     
+
+    
     // set up correlator and pairs
     RayTraceCorrelator *theCorrelators[numScanned];
     for(int r=0; r<numScanned; r++){
@@ -242,6 +288,11 @@ int main(int argc, char **argv)
     printf("------------------\n");
     printf("Correlator Setup Complete. Begin looping events.\n");
     printf("------------------\n");    
+    
+    // cout << "Channel mapping from RF to Electric:" << endl;
+    // for (int i=0; i<16; i++) {
+    //     cout << "RF = " << i << "\t elec = " << AraGeomTool::Instance()->getElecChanFromRFChan(i, settings1->DETECTOR_STATION) << endl;
+    // }
     
     
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
@@ -308,15 +359,19 @@ int main(int argc, char **argv)
     printf("------------------\n");
     
     //Loop over events
-    int loopedEntries;
+    int loopStart;
+    int loopEnd;
     if (debugMode) {
-        loopedEntries=1;
+        loopStart=debugEvent;
+        loopEnd=loopStart+1;
     }
     else {
-        loopedEntries=numEntries;
+        loopStart=0;
+        loopEnd=numEntries;
     }
     
-    for(Long64_t event=0;event<loopedEntries;event++) {
+    // for(Long64_t event=0;event<loopedEntries;event++) {
+    for(Long64_t event=loopStart;event<loopEnd;event++) {
     // for(Long64_t event=53530;event<53539;event++) {  //Debugging and running over events near desired event to save time in loop.
     // for(Long64_t event=650;event<700;event++) {  //Debugging and running over events enar desired event to save time in loop.    
         fp->cd();
@@ -331,7 +386,10 @@ int main(int argc, char **argv)
         
         // if (rawAtriEvPtr->eventNumber != 679){  //Test for A2 Run 12559
         //     continue;
-        // }        
+        // }       
+        
+        //Set event number for output
+        // eventNumber = rawAtriEvPtr->eventNumber;
         
         
         if (not calibrated) {
@@ -344,6 +402,9 @@ int main(int argc, char **argv)
             simTree->GetEntry(event);
         }
         Position diff_true;
+        
+        //Set event number for output
+        eventNumber = usefulAtriEvPtr->eventNumber;        
         if (not dataLike){
             std::vector<double> event_position;
             event_position.push_back(eventPtr->Nu_Interaction[0].posnu.GetX());
@@ -372,8 +433,10 @@ int main(int argc, char **argv)
         TGraph *grCswH;
         
         //TCanvas for the raw waveform separated by channel
-        TCanvas *c = new TCanvas("","", 1600, 1600);
-        c->Divide(4,4);
+        char plotTitle[500];
+        sprintf(plotTitle,"A%i Run %s Event %i", station, runNum, eventNumber);        
+        TCanvas *c = new TCanvas(plotTitle,plotTitle, 1600, 1600);
+        c->Divide(4,4);             
         
         //TODO: Implement independent loop for double peak finder that checks parter VPol and HPol channels to find the cutoff times.
         for (int i=0; i<8; i++){
@@ -393,7 +456,6 @@ int main(int argc, char **argv)
             vector<double> primaryPeakIntPowers; // vector of peak values            
             
             int numSearchPeaks=2; //only look for two peaks  //TODO:  Maybe make this a console argument?  Though the cropping is based on having two peaks 4/10/2024
-            double peakSeparation=50.0;  //Minimum separation between peaks.  Closest seperation is expected to be ~100 ns.
             getAbsMaximum_N(grIntV, numSearchPeaks, peakSeparation, vvHitTimes, vvPeakIntPowers);
             getAbsMaximum_N(grIntH, numSearchPeaks, peakSeparation, hhHitTimes, hhPeakIntPowers);
             
@@ -401,8 +463,8 @@ int main(int argc, char **argv)
             double noiseRmsChH = calculateNoiseRMS(grIntH);          
             
             //Compare Vpol and Hpol peaks, choosing the larger peaked channel to serve as the primary peak.
-            double peakThresholdV = noiseRmsChV*4;
-            double peakThresholdH = noiseRmsChH*4;
+            double peakThresholdV = noiseRmsChV*snrThreshold;
+            double peakThresholdH = noiseRmsChH*snrThreshold;
             double peakThreshold;
             // cout << "peakThreshold = " << peakThreshold << endl;
             double firstPeak;
@@ -433,8 +495,11 @@ int main(int argc, char **argv)
             noiseRms[i] = noiseRmsChV;
             noiseRms[i+8]=noiseRmsChH;
             
-            
-            if (primaryPeakIntPowers[1] > peakThreshold) {
+            if (debugMode) {
+                cout <<"primaryPeakIntPowers[0] = " << primaryPeakIntPowers[0] << endl;
+                cout <<"primaryPeakIntPowers[1] = " << primaryPeakIntPowers[1] << endl;
+            }
+            if (primaryPeakIntPowers[1] > peakThreshold and primaryPeakIntPowers[1] > 0.5*primaryPeakIntPowers[0]) {
                 cout << "Assuming double-peak signal." << endl;
                 if(primaryHitTimes[1]>primaryHitTimes[0]) {
                     firstPeak = primaryHitTimes[0];
@@ -448,10 +513,14 @@ int main(int argc, char **argv)
                 cutoffTime[i+8] = firstPeak + (secondPeak-firstPeak)/2;
                 
                 //Export peak times to outTree.  Assuming no birefringence at the moment, so V and H signal arrive at the same time.  TODO: Include birefringence in this. 5/14/2024
-                directPeakTimes[i] = primaryHitTimes[0];
-                directPeakTimes[i+8] = primaryHitTimes[0];
-                refPeakTimes[i] = primaryHitTimes[1];
-                refPeakTimes[i+8] = primaryHitTimes[1];                
+                // directPeakTimes[i] = primaryHitTimes[0];
+                // directPeakTimes[i+8] = primaryHitTimes[0];
+                // refPeakTimes[i] = primaryHitTimes[1];
+                // refPeakTimes[i+8] = primaryHitTimes[1];   
+                directPeakTimes[i] = firstPeak;
+                directPeakTimes[i+8] = firstPeak;
+                refPeakTimes[i] = secondPeak;
+                refPeakTimes[i+8] = secondPeak;                   
             }
             else {
                 cout << "Assuming single-peak signal." << endl;                
@@ -468,7 +537,7 @@ int main(int argc, char **argv)
                 c->cd(i+1); gPad->SetGrid(1,1);
                 grV->Draw();
                 char vTitle[500];
-                sprintf(vTitle,"Ch. %.2d", i);
+                sprintf(vTitle,"A%d Run %s Event %d Ch. %.2d", station, runNum, eventNumber, i);
                 grV->SetTitle(vTitle);
                 TLine *l1v = new TLine(vvHitTimes[0], -1500, vvHitTimes[0], 1500);
                 l1v->SetLineColorAlpha(kBlue, 1);
@@ -494,7 +563,7 @@ int main(int argc, char **argv)
                 c->cd(i+1+8); gPad->SetGrid(1,1);
                 grH->Draw();
                 char hTitle[500];
-                sprintf(hTitle,"Ch. %.2d", i+8);
+                sprintf(hTitle,"A%d Run %s Event %d Ch. %.2d", station, runNum, eventNumber, i+8);
                 grH->SetTitle(hTitle);
                 TLine *l1h = new TLine(hhHitTimes[0], -1500, hhHitTimes[0], 1500);
                 l1h->SetLineColorAlpha(kBlue, 1);
@@ -515,6 +584,9 @@ int main(int argc, char **argv)
                 // l6->SetLineColorAlpha(kPink, 1);
                 l6h->SetLineStyle(kDashed);
                 l6h->Draw();
+                
+                // grV->GetXaxis()->SetLimits(-100, 50);
+                // grH->GetXaxis()->SetLimits(-100, 50);
             }
             
             if (debugMode){
@@ -568,7 +640,7 @@ int main(int argc, char **argv)
             
         }
 
-        if (debugMode){
+        if (debugMode){      
             char title[500];
             sprintf(title, "waveform.png");
             c->Print(title);
@@ -665,21 +737,28 @@ int main(int argc, char **argv)
                 // Debugging - JCF 6/7/2023
                 TCanvas *c = new TCanvas("","", 1200, 950);            
                 maps[0]->Draw("colz");
-                maps[0]->GetXaxis()->SetTitle("Phi [deg]");
-                maps[0]->GetYaxis()->SetTitle("Theta [deg]");
+                // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
+                // maps[0]->GetYaxis()->SetTitle("Theta [deg]");
+                maps[0]->GetXaxis()->SetTitle("Azimuth [degrees]");
+                maps[0]->GetYaxis()->SetTitle("Zenith [degrees]");                
                 maps[0]->GetYaxis()->SetTitleSize(0.05);
                 maps[0]->GetYaxis()->SetLabelSize(0.03);
-                maps[0]->GetYaxis()->SetTitleOffset(0.6);
+                // maps[0]->GetYaxis()->SetTitleOffset(0.6);
+                maps[0]->GetYaxis()->SetTitleOffset(0.8);
                 maps[0]->GetXaxis()->SetTitleSize(0.05);
                 maps[0]->GetXaxis()->SetLabelSize(0.03);
-                maps[0]->GetXaxis()->SetTitleOffset(0.6);
+                // maps[0]->GetXaxis()->SetTitleOffset(0.6);
+                maps[0]->GetXaxis()->SetTitleOffset(0.8);
                 gStyle->SetOptStat(0);
                 maps[0]->GetXaxis()->CenterTitle();
                 maps[0]->GetYaxis()->CenterTitle();
                 gPad->SetRightMargin(0.15);
                 char title[500];
                 sprintf(title,"%.2f.png", radii[r]);
-                maps[0]->SetTitle(title);
+                char plotTitle[500];
+                // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
+                sprintf(plotTitle,"ARA Station A%d SPICE Event", station);
+                maps[0]->SetTitle(plotTitle);
                 c->SaveAs(title);
                 delete c;
                 // End debugging
@@ -742,15 +821,21 @@ int main(int argc, char **argv)
             int likely_sol = 0;  //Forcing solution to zero since we set up the double peak finder to look for the D pulse.
             std::map<int, double> thetas_truth = get_value_from_mc_truth("theta", likely_sol, reportPtr);
             std::map<int, double> phis_truth = get_value_from_mc_truth("phi", likely_sol, reportPtr);
+            // std::map<int, double> launch_thetas_truth = get_value_from_mc_truth("theta_launch", likely_sol, reportPtr);
+            // std::map<int, double> launch_phis_truth = get_value_from_mc_truth("phi_launch", likely_sol, reportPtr);            
         
             for(int i=0; i<16; i++){
                 double this_true_theta = thetas_truth.find(i)->second;
                 double this_true_phi = phis_truth.find(i)->second;
+                // double this_true_launch_theta = launch_thetas_truth.find(i)->second;
+                // double this_true_launch_phi = launch_phis_truth.find(i)->second;                
                 // printf("  Ant %d, True Arrival Theta %.2f, Reco Arrival Phi %.2f \n",
                 //     i, this_true_theta, this_true_phi
                 // );
                 true_arrivalThetas_out[i] = this_true_theta*180/PI;
                 true_arrivalPhis_out[i] = this_true_phi*180/PI; 
+                // true_launchThetas_out[i] = this_true_launch_theta*180/PI;
+                // true_launchPhis_out[i] = this_true_launch_phi*180/PI;                 
             }
             trueTheta_out = 90 - diff_true.Theta() * TMath::RadToDeg();  //Converted to match the zenith in the reconstruction calculation.
             truePhi_out = (std::fmod((diff_true.Phi() * TMath::RadToDeg())+180,360))-180;
@@ -776,10 +861,30 @@ int main(int argc, char **argv)
                 this_binTheta, this_binPhi,
                 this_arrivalTheta, this_arrivalPhi
             );
+            
+            double this_launchTheta, this_launchPhi;
+            // theCorrelators[element]->LookupLaunchAngles(i, peakSol[element], 
+            //     this_binTheta, this_binPhi,
+            //     this_launchTheta, this_launchPhi
+            // );            
+
             double this_arrivalTime = theCorrelators[element]->LookupArrivalTimes(i, peakSol[element], this_binTheta, this_binPhi);
             reco_arrivalThetas_out[i] = this_arrivalTheta*180/PI; //Previous saved in radians, Converting to degrees - JCF 4/11/2024
             reco_arrivalPhis_out[i] = this_arrivalPhi*180/PI; 
             arrivalTimes_out[i] = this_arrivalTime;
+            // reco_launchThetas_out[i] = this_launchTheta*180/PI;
+            // reco_launchPhis_out[i] = this_launchPhi*180/PI;             
+            if (debugMode) {
+                cout << "*******************************" << endl;
+                cout << "i = " << i << endl;
+                cout << "pealSol[element] = " << peakSol[element] << endl;
+                cout << "this_binTheta = " << this_binTheta << endl;
+                cout << "this_binPhi = " << this_binPhi << endl;
+                cout << "this_arrivalTime = " << this_arrivalTime << endl;
+                cout << "reco_arrivalThetas_out[i] = " << reco_arrivalThetas_out[i] << endl;
+                cout << "reco_arrivalPhis_out[i] = " << reco_arrivalPhis_out[i] << endl;
+                cout << "*******************************" << endl;
+            }            
         }
         
 //         // then the true quantities (if applicable)
@@ -814,91 +919,91 @@ int main(int argc, char **argv)
 
         outTree->Fill();
         
-        if (debugMode){
-            //TCanvas for the coherently summed waveform separated by VPol and HPol
-            TCanvas *cTimeshift = new TCanvas("","", 1600, 1600);
-            cTimeshift->Divide(4,4);    
+//         if (debugMode){
+//             //TCanvas for the coherently summed waveform separated by VPol and HPol
+//             TCanvas *cTimeshift = new TCanvas("","", 1600, 1600);
+//             cTimeshift->Divide(4,4);    
 
-            double arrivalTimeMax = *max_element(arrivalTimes_out, arrivalTimes_out + 16);
-            double arrivalTimeMin = *min_element(arrivalTimes_out, arrivalTimes_out + 16);
+//             double arrivalTimeMax = *max_element(arrivalTimes_out, arrivalTimes_out + 16);
+//             double arrivalTimeMin = *min_element(arrivalTimes_out, arrivalTimes_out + 16);
             
-            //Create array of channel pairs to exclude in the coherent sum
-            std::vector<int> cswExcludedChannelPairs;
-            for(int i=0; i<8; i++){
-                bool checkVpol = std::find(excludedChannels.begin(), excludedChannels.end(), i) != excludedChannels.end();
-                bool checkHpol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();
-                if (checkVpol or checkHpol) {
-                    cout << "Excluding channel pair " << i << endl;
-                    cswExcludedChannelPairs.push_back(i);
-                }
+//             //Create array of channel pairs to exclude in the coherent sum
+//             std::vector<int> cswExcludedChannelPairs;
+//             for(int i=0; i<8; i++){
+//                 bool checkVpol = std::find(excludedChannels.begin(), excludedChannels.end(), i) != excludedChannels.end();
+//                 bool checkHpol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();
+//                 if (checkVpol or checkHpol) {
+//                     cout << "Excluding channel pair " << i << endl;
+//                     cswExcludedChannelPairs.push_back(i);
+//                 }
                 
-            }
+//             }
 
-            for(int i=0; i<16; i++){
+//             for(int i=0; i<16; i++){
                 
-                //Check if channel is in the excluded channel list
-                bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
+//                 //Check if channel is in the excluded channel list
+//                 bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
 
-                TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);
-                gr = FFTtools::cropWave(gr, gr->GetX()[0], cutoffTime[i]);
+//                 TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);
+//                 gr = FFTtools::cropWave(gr, gr->GetX()[0], cutoffTime[i]);
 
-                for(int k=0; k<gr->GetN(); k++){
-                    gr->GetX()[k] = gr->GetX()[k] - arrivalTimes_out[i] + arrivalTimeMax;
-                }
+//                 for(int k=0; k<gr->GetN(); k++){
+//                     gr->GetX()[k] = gr->GetX()[k] - arrivalTimes_out[i] + arrivalTimeMax;
+//                 }
 
-                cout << "Ch " << i << " time[0] = " << gr->GetX()[0] << endl;
+//                 cout << "Ch " << i << " time[0] = " << gr->GetX()[0] << endl;
                 
-                gr = FFTtools::getInterpolatedGraph(gr,dt);
-                // gr = FFTtools::getInterpolatedGraphFreqDom(gr,0.1);
+//                 gr = FFTtools::getInterpolatedGraph(gr,dt);
+//                 // gr = FFTtools::getInterpolatedGraphFreqDom(gr,0.1);
 
-                cTimeshift->cd(i+1); gPad->SetGrid(1,1);
-                gr->Draw();
-                if (checkExcluded) {
-                    gr->SetLineColor(2);
-                }
-                char vTitle[500];
-                sprintf(vTitle,"Ch. %.2d", i);
-                gr->SetTitle(vTitle);            
+//                 cTimeshift->cd(i+1); gPad->SetGrid(1,1);
+//                 gr->Draw();
+//                 if (checkExcluded) {
+//                     gr->SetLineColor(2);
+//                 }
+//                 char vTitle[500];
+//                 sprintf(vTitle,"Ch. %.2d", i);
+//                 gr->SetTitle(vTitle);            
 
-            }
+//             }
         
 
-            char title[500];
-            sprintf(title, "waveformTimeshift.png");
-            cTimeshift->Print(title);
+//             char title[500];
+//             sprintf(title, "waveformTimeshift.png");
+//             cTimeshift->Print(title);
             
-            //Create coherent sum logic
-            TGraph *cswVpol = new TGraph();
-            TGraph *cswHpol = new TGraph();
+//             //Create coherent sum logic
+//             TGraph *cswVpol = new TGraph();
+//             TGraph *cswHpol = new TGraph();
 
-            calculateCSW(usefulAtriEvPtr, excludedChannels, cutoffTime, arrivalTimes_out, cswVpol, cswHpol);
+//             calculateCSW(usefulAtriEvPtr, excludedChannels, cutoffTime, arrivalTimes_out, cswVpol, cswHpol);
             
-            cout << "Sizes of csw TGraphs: "<< endl;
-            cout << "cswVpol->GetN() = " << cswVpol->GetN() << endl;
-            cout << "cswHpol->GetN() = " << cswHpol->GetN() << endl;
+//             cout << "Sizes of csw TGraphs: "<< endl;
+//             cout << "cswVpol->GetN() = " << cswVpol->GetN() << endl;
+//             cout << "cswHpol->GetN() = " << cswHpol->GetN() << endl;
             
-            cout << "Creating TCanvas for CSW" << endl;
-            TCanvas *cCsw = new TCanvas("","", 1600, 1600);
-            cCsw->Divide(1,2); 
+//             cout << "Creating TCanvas for CSW" << endl;
+//             TCanvas *cCsw = new TCanvas("","", 1600, 1600);
+//             cCsw->Divide(1,2); 
             
-            cCsw->cd(1); gPad->SetGrid(1,1);
-            cswVpol->Draw();
-            char vCswTitle[500];
-            sprintf(vCswTitle,"VPol");
-            cswVpol->SetTitle(vCswTitle);
+//             cCsw->cd(1); gPad->SetGrid(1,1);
+//             cswVpol->Draw();
+//             char vCswTitle[500];
+//             sprintf(vCswTitle,"VPol");
+//             cswVpol->SetTitle(vCswTitle);
             
-            cCsw->cd(2); gPad->SetGrid(1,1);
-            cswHpol->Draw();
-            char hCswTitle[500];
-            sprintf(hCswTitle,"HPol");
-            cswHpol->SetTitle(hCswTitle);
+//             cCsw->cd(2); gPad->SetGrid(1,1);
+//             cswHpol->Draw();
+//             char hCswTitle[500];
+//             sprintf(hCswTitle,"HPol");
+//             cswHpol->SetTitle(hCswTitle);
             
-            char cswTitle[500];
-            sprintf(cswTitle, "waveformCSW.png");
-            cCsw->Print(cswTitle);            
+//             char cswTitle[500];
+//             sprintf(cswTitle, "waveformCSW.png");
+//             cCsw->Print(cswTitle);            
             
             
-        }                       
+//         }                       
 
     
     }

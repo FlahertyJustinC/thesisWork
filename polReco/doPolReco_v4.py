@@ -63,16 +63,22 @@ gInterpreter.ProcessLine('#include "/cvmfs/ara.opensciencegrid.org/trunk/centos7
 gSystem.Load('/cvmfs/ara.opensciencegrid.org/trunk/centos7/ara_build/lib/libAraEvent.so')
 gSystem.Load("/cvmfs/ara.opensciencegrid.org/trunk/centos7/source/libRootFftwWrapper/build/libRootFftwWrapper.so")
 
+sampleRate=0.1 #ns
+tBelow=20
+tAbove=20
+
 #Read console input
 if len( sys.argv ) == 5:
-    runNumber = int(sys.argv[1])
+    # runNumber = int(sys.argv[1])
+    runNumber = str(sys.argv[1])
     recoSrcFolder = str(sys.argv[2])
     rawSrcFolder = str(sys.argv[3])
     outputFolder = str(sys.argv[4])
     doCsw=False
     
 elif len( sys.argv ) == 6:
-    runNumber = int(sys.argv[1])
+    # runNumber = int(sys.argv[1])
+    runNumber = str(sys.argv[1])
     recoSrcFolder = str(sys.argv[2])
     rawSrcFolder = str(sys.argv[3])
     outputFolder = str(sys.argv[4])  
@@ -83,10 +89,16 @@ else:
     sys.exit()
 
 #Initialize flag values before argparser
-subset = ''
+if (runNumber.find("_")!=-1):
+    subset = int(runNumber[(runNumber.find('_')+1):])
+    runNumber = int(runNumber[:runNumber.find('_')])
+else:
+    runNumber = int(runNumber)
+    subset = None
 
 
 print("runNumber = " + str(runNumber))
+print("subset = " + str(subset))
 print("Sourcing vertex reconstruction from " + str(recoSrcFolder))
 print("Sourcing raw data from " + str(rawSrcFolder))
 
@@ -192,14 +204,14 @@ if (not dataLike):
         isSoftTrigger = usefulEvent.isSoftwareTrigger()
         # Set soft trigger events
         if (isSoftTrigger):
-            print("Event " + str(evt) + " is a soft trigger")
+            # print("Event " + str(evt) + " is a soft trigger")
             softTriggerEventList.append(evt)
         #Set calpulser events
         elif (isCalpulser):
-            print("Event " + str(evt) + " is a calpulser")
+            # print("Event " + str(evt) + " is a calpulser")
             calpulserEventList.append(evt)
         else:
-            print("Event " + str(evt) + " is a RF event.")
+            # print("Event " + str(evt) + " is a RF event.")
             rfEventList.append(evt)
         #Some AraSim results set ALL events as soft triggers, so this covers that condition.
         if (len(rfEventList) == 0):
@@ -221,19 +233,20 @@ solution = 'direct'
 numEvents = len(eventList)  
 
 #Initialize arrays that will be saved to .pkl
-evt_num = np.zeros(numEvents)
-runNumberOut = np.zeros(numEvents)
+evt_num = np.zeros(numEvents, dtype=int)
+runNumberOut = np.zeros(numEvents, dtype=int)
 runSubsetNumberOut = np.zeros(numEvents)
 thetaRecoOut = np.zeros((numEvents, 16))
 thetaVertexOut = np.zeros(numEvents)
 phiRecoOut = np.zeros((numEvents, 16))
 phiVertexOut = np.zeros(numEvents)
-whichSol = np.zeros(numEvents)
+whichSol = np.zeros(numEvents, dtype=int)
 recoROut = np.zeros((numEvents, 8))
 psiRecoOut = np.zeros((numEvents, 8))
 unixtime = np.zeros(numEvents)
 timeStamp = np.zeros(numEvents)
 pulserDepth = np.zeros(numEvents)
+bestCorrOut = np.zeros(numEvents)
     
 #Define arrays
 snrsOut = np.zeros((numEvents,16))
@@ -242,13 +255,14 @@ hSnrOut = np.zeros(numEvents)
 hilbertPeakOut = np.zeros((numEvents,16))
 peakTimeOut = np.zeros((numEvents,16))
 powerOut = np.zeros((numEvents,16))
+recoRadiusOut = np.zeros(numEvents)
 
 #Initialize array for timing cut values.
 runEventNumber = np.empty(numEvents).astype(str)   
 
 noiseEnvelope, noiseRms = util.findMeanNoiseFromWaveform(eventList, eventTree, usefulEvent, ROOT)
 
-print("Setting noise envelope to None.  Fix this later Justin.")
+# print("Setting noise envelope to None.  Fix this later Justin.")
 noiseEnvelope = None
 
 #Import unixtime of first event and figure out the date, then use that date to calculate the pulser depth
@@ -274,7 +288,7 @@ try:
     pulserDepthFile = "spicePulser_"+str(month)+str(day)+"Depth.txt"
 
     depthFile = pd.read_csv(pulserDepthFile)
-    print("Sourcing pulser depth from " + "./"+outputFolder+"/"+pulserDepthFile) #Debugging JCF 9/14/2022
+    # print("Sourcing pulser depth from " + "./"+outputFolder+"/"+pulserDepthFile) #Debugging JCF 9/14/2022
     time = pd.to_datetime(depthFile.NZ_Time)
     time.head()
     newTime = time.apply(lambda dt: dt.replace(day=day, month = month, year = year))
@@ -286,8 +300,8 @@ try:
     df.index = df.index.tz_localize(nz).tz_convert(utc)
     unixTimeDepth = (df.index - pd.Timestamp("1970-01-01").tz_localize(utc)) // pd.Timedelta('1s')#This is unix time 
     f = scipy.interpolate.interp1d(unixTimeDepth, depthFile.depth,bounds_error=False, fill_value=0.)
-    print("Min Pulser Unix Time = " + str(unixTimeDepth.min()))
-    print("Max Pulser Unix Time = " + str(unixTimeDepth.max()))
+    # print("Min Pulser Unix Time = " + str(unixTimeDepth.min()))
+    # print("Max Pulser Unix Time = " + str(unixTimeDepth.max()))
     pulserDepthCalculation = True
 except OverflowError:
     print("Unix time of event undefined.  Bypassing pulser depth calculation.")
@@ -297,28 +311,38 @@ except OverflowError:
 # print("eee")
 for index in range(numEvents):
     evt = eventList[index]
-    print("evt = " + str(evt))
+    # print("evt = " + str(evt))
     vertexReco.GetEntry(evt)
     eventTree.GetEntry(evt)
+    bestCorrOut[index] = eventTree.bestCorr
+    recoRadiusOut[index] = vertexReco.bestR
     
     evt_num[index] = usefulEvent.eventNumber
-    runNumberOut[index] = runNumber
+    runNumberOut[index] = int(runNumber)
     runEventNumber[index] = str(int(runNumber)) + "_" + str(int(evt_num[index]))
-    thetaVertexOut[index] = 90 - vertexReco.bestTheta_out
-    phiVertexOut[index] = vertexReco.bestPhi_out % 360
+    thetaVertexOut[index] = vertexReco.bestTheta_out
+    phiVertexOut[index] = vertexReco.bestPhi_out
     
-    thetaRecoOut[index] = np.degrees(np.array(vertexReco.reco_arrivalThetas_out)) % 180
-    phiRecoOut[index] = np.degrees(np.array(vertexReco.reco_arrivalPhis_out)) % 360
+    thetaRecoOut[index] = np.array(vertexReco.reco_arrivalThetas_out)
+    phiRecoOut[index] = np.array(vertexReco.reco_arrivalPhis_out)
+    
+    peakTimeOut[index] = np.array(vertexReco.directPeakTimes)
     
     timeStamp[index] = usefulEvent.timeStamp
     
-    # hilbertPeakOut[index], peakTimeOut[index], snrsOut[index] = util.peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, solution="single", timeShift=0, tolerance=30, deconvolution=False)
-    hilbertPeakOut[index], peakTimeOut[index] = util.peakHilbertSimple(usefulEvent)
-    powerOut[index] = util.powerFromWaveformSimple(usefulEvent, peakTimeOut[index])
-    # recoROut[index], psiRecoOut[index] = util.calculatePsiAndR(hilbertPeakOut[index]**2)
-    recoROut[index], psiRecoOut[index] = util.calculatePsiAndR(powerOut[index])
+
+    if (doCsw):
+        hilbertPeakOut[index], peakTimeOut[index] = util.peakHilbertSimple(usefulEvent, tolerance=30, sampleRate=sampleRate)
+    else:
+        hilbertPeakOut[index], peakTimeOut[index], snrsOut[index] = util.peakHilbert(usefulEvent, vertexReco, noiseEnvelope, noiseRms, solution="single", timeShift=0, tolerance=30, deconvolution=False, sampleRate=sampleRate)        
+    powerOut[index] = util.powerFromWaveformSimple(usefulEvent, peakTimeOut[index], tBelow=tBelow, tAbove=tAbove, dt=sampleRate)
+    # print(peakTimeOut[index])
+    # print(powerOut[index])
+    # print(hilbertPeakOut[index])
+    recoROut[index], psiRecoOut[index] = util.calculatePsiAndR(hilbertPeakOut[index]**2)
+    # recoROut[index], psiRecoOut[index] = util.calculatePsiAndR(powerOut[index])
     
-    print(str(runNumber) + " | " + str(evt) + " | " + str(psiRecoOut[index]))
+    # print(str(runNumberOut[index]) + " | " + str(evt) + " | " + str(psiRecoOut[index]))
     
     ##Adding line to export snrs from vertexReco
     snrsOut[index] = np.array(vertexReco.snrs_out)
@@ -339,7 +363,9 @@ print("Events processed!")
 
 #Save data to pandas file
 original_df = pd.DataFrame({"runNumber":runNumberOut, 
+                            "subset":subset,
                             "eventNumber":evt_num.tolist(),  
+                            "bestCorr":bestCorrOut.tolist(), 
                             "timeStamp":timeStamp.tolist(), 
                             "runEventNumber":runEventNumber.tolist(),
                             "thetaReco":thetaRecoOut.tolist(), 
@@ -355,7 +381,8 @@ original_df = pd.DataFrame({"runNumber":runNumberOut,
                             "pulserDepth":pulserDepth.tolist(),
                             "hilbertPeaks":hilbertPeakOut.tolist(), 
                             "peakTimes":peakTimeOut.tolist(), 
-                            "deltaTPeaks":deltaTPeakOut.tolist()
+                            "deltaTPeaks":deltaTPeakOut.tolist(),
+                            "recoRadius":recoRadiusOut.tolist()                            
                            })
  
 
@@ -363,8 +390,10 @@ isExist = os.path.exists(outputFolder)
 if not isExist:
   # Create a new directory because it does not exist 
   os.makedirs(outputFolder)
-
-outfilePath = outputFolder + "/polReco_run%i.pkl"%(runNumber)  
+if (subset is None):
+    outfilePath = outputFolder + "/polReco_run%i.pkl"%(runNumber)  
+else:
+    outfilePath = outputFolder + "/polReco_run%i_%i.pkl"%(runNumber, subset)  
 
 original_df.to_pickle(outfilePath)
 print("Output saved to " + outfilePath)

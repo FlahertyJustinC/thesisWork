@@ -13,9 +13,15 @@ echo $rawDirectory
 
 # ./samplePurifier 2 12559 ../data/A2/run_012559/event012559.root . ~/source/AraSim/outputs/20240417_updatedVertexRecoAnalysis/realDataSpice/setup_KU_antenna_A2.txt
 
-#Uses new syntax 
-station=4
-run=6128
-index=723
+# #Uses new syntax 
+# station=4
+# run=6128
+# index=723
+# numChannelsPassed=3
+# ./samplePurifier ${run}__$index $numChannelsPassed ${rawDirectory}/setup_KU_antenna_A$station.txt ${rawDirectory}A$station/run_00$run/split/event00${run}__$index.root .
+
+#Test on a full run
+station=2
+run=12557
 numChannelsPassed=3
-./samplePurifier ${run}__$index $numChannelsPassed ${rawDirectory}/setup_KU_antenna_A$station.txt ${rawDirectory}A$station/run_00$run/split/event00${run}__$index.root .
+./samplePurifier ${run} $numChannelsPassed ${rawDirectory}/setup_KU_antenna_A$station.txt ${rawDirectory}A$station/run_0$run/event0${run}.root .

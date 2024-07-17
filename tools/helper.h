@@ -65,6 +65,12 @@ double get_value(string which, Report *reportPtr, int station, int string, int a
     else if(which =="phi"){
         return reportPtr->stations[station].strings[string].antennas[antenna].phi_rec[ray];
     }
+    else if(which =="theta_launch"){
+        return reportPtr->stations[station].strings[string].antennas[antenna].theta_launch[ray];
+    }
+    else if(which =="phi_launch"){
+        return reportPtr->stations[station].strings[string].antennas[antenna].phi_launch[ray];
+    }    
     else{
         throw std::invalid_argument("An unsupported argument for 'which' was supplied.");
     }

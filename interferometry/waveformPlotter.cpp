@@ -105,14 +105,15 @@ int main (int argc, char **argv) {
             simTree->GetEntry(event);
         }    
     
-        TGraph *g[16];
-        auto *c = new TCanvas();
+        TCanvas *c = new TCanvas("","", 1600, 1600);
         c->Divide(4,4);
         //Testing waveform plotting
         for(int i=0; i<16; i++){
             TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);                  
             c->cd(i+1); gPad->SetGrid(1,1);
             gr->Draw();
+            TLine *l1 = new TLine(50, -1000, 50, 1000);
+            l1->Draw();                
         }
         char title[500];
         sprintf(title, "waveform.png");   
