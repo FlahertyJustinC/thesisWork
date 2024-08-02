@@ -25,7 +25,7 @@ UsefulAtriStationEvent *usefulAtriEvPtr;
 #include "RaySolver.h"
 #include "IceModel.h"
 
-#include "helper.h"
+// #include "helper.h"
 #include "tools.h"
 
 bool debugMode = false;
@@ -133,16 +133,41 @@ int main(int argc, char **argv)
             radii.push_back(radiiOld[r]);
         }
     }      
-    else if (station == 2) {
-        for (int r=2390; r<2930; r+=10) {
+    else if (station == 1 or station==100) {
+        for (int r=800; r<1200; r+=10) {
             radii.push_back(r);
         }
-    }
+    }        
+    // else if (station == 1 or station==100) {
+    //     for (int r=1250; r<2100; r+=10) {
+    //         radii.push_back(r);
+    //     }
+    // }    
+    // else if (station == 2) {
+    //     for (int r=2390; r<2930; r+=10) {
+    //         radii.push_back(r);
+    //     }
+    // }
+    else if (station == 2) {
+        for (int r=100; r<4000; r+=100) {
+            radii.push_back(r);
+        }
+    }    
+    else if (station == 3) {
+        for (int r=3150; r<3590; r+=10) {
+            radii.push_back(r);
+        }
+    }    
     else if (station == 4) {
         for (int r=3170; r<3600; r+=10) {
             radii.push_back(r);
         }
     }  
+    else if (station == 5) {
+        for (int r=4130; r<4730; r+=10) {
+            radii.push_back(r);
+        }
+    }      
 
     
     const int numScanned = radii.size();
@@ -185,27 +210,27 @@ int main(int argc, char **argv)
     double snrs_out[16];
     double v_snr_out;
     double h_snr_out;
-    outTree->Branch("peakCorrs", peakCorrs_out, TString::Format("peakCoors_out[%d]/D",numScanned));
-    outTree->Branch("peakThetas", peakThetas_out, TString::Format("peakThetas_out[%d]/D",numScanned));
-    outTree->Branch("peakPhis", peakPhis_out, TString::Format("peakPhis_out[%d]/D",numScanned));
-    outTree->Branch("peakPols", peakPol_out, TString::Format("peakPol_out[%d]/I",numScanned));
-    outTree->Branch("peakSols", peakSol_out, TString::Format("peakSol_out[%d]/I",numScanned));
-    outTree->Branch("bestTheta", &bestTheta_out, "bestTheta_out/D");
-    outTree->Branch("bestPhi", &bestPhi_out, "bestPhi_out/D");
-    outTree->Branch("bestCorr", &bestCorr_out, "bestCorr_out/D");
-    outTree->Branch("bestR", &bestR_out, "bestR_out/D");
-    outTree->Branch("bestSol", &bestSol_out, "bestSol_out/I");
-    outTree->Branch("reco_arrivalThetas", reco_arrivalThetas_out, "reco_arrivalThetas_out[16]/D");
-    outTree->Branch("reco_arrivalPhis", reco_arrivalPhis_out, "reco_arrivalPhis_out[16]/D");
-    outTree->Branch("reco_launchThetas", reco_launchThetas_out, "reco_launchThetas_out[16]/D");
-    outTree->Branch("reco_launchPhis", reco_launchPhis_out, "reco_launchPhis_out[16]/D");    
-    outTree->Branch("arrivalTimes", arrivalTimes_out, "arrivalTimes_out[16]/D");
+    outTree->Branch("peakCorrs", peakCorrs_out, TString::Format("peakCoors[%d]/D",numScanned));
+    outTree->Branch("peakThetas", peakThetas_out, TString::Format("peakThetas[%d]/D",numScanned));
+    outTree->Branch("peakPhis", peakPhis_out, TString::Format("peakPhis[%d]/D",numScanned));
+    outTree->Branch("peakPols", peakPol_out, TString::Format("peakPol[%d]/I",numScanned));
+    outTree->Branch("peakSols", peakSol_out, TString::Format("peakSol[%d]/I",numScanned));
+    outTree->Branch("bestTheta", &bestTheta_out, "bestTheta/D");
+    outTree->Branch("bestPhi", &bestPhi_out, "bestPhi/D");
+    outTree->Branch("bestCorr", &bestCorr_out, "bestCorr/D");
+    outTree->Branch("bestR", &bestR_out, "bestR/D");
+    outTree->Branch("bestSol", &bestSol_out, "bestSol/I");
+    outTree->Branch("reco_arrivalThetas", reco_arrivalThetas_out, "reco_arrivalThetas[16]/D");
+    outTree->Branch("reco_arrivalPhis", reco_arrivalPhis_out, "reco_arrivalPhis[16]/D");
+    outTree->Branch("reco_launchThetas", reco_launchThetas_out, "reco_launchThetas[16]/D");
+    outTree->Branch("reco_launchPhis", reco_launchPhis_out, "reco_launchPhis[16]/D");    
+    outTree->Branch("arrivalTimes", arrivalTimes_out, "arrivalTimes[16]/D");
 
     //These are simulation specific, and should be set to zero or delete if using a real data reconstruction
     outTree->Branch("trueTheta", &trueTheta_out, "trueTheta_out/D");
     outTree->Branch("truePhi", &truePhi_out, "truePhi_out/D");
     outTree->Branch("trueR", &trueR_out, "trueR_out/D");
-    outTree->Branch("trueSol", &likelySol_out, "likelySol_out/D");
+    outTree->Branch("trueSol", &likelySol_out, "likelySol_out/I");
     outTree->Branch("true_arrivalThetas", true_arrivalThetas_out, "true_arrivalThetas_out[16]/D");
     outTree->Branch("true_arrivalPhis", true_arrivalPhis_out, "true_arrivalPhis_out[16]/D");
     outTree->Branch("true_launchThetas", true_launchThetas_out, "true_launchThetas_out[16]/D");
@@ -289,11 +314,6 @@ int main(int argc, char **argv)
     printf("Correlator Setup Complete. Begin looping events.\n");
     printf("------------------\n");    
     
-    // cout << "Channel mapping from RF to Electric:" << endl;
-    // for (int i=0; i<16; i++) {
-    //     cout << "RF = " << i << "\t elec = " << AraGeomTool::Instance()->getElecChanFromRFChan(i, settings1->DETECTOR_STATION) << endl;
-    // }
-    
     
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
     std::vector<int> excludedChannels;
@@ -370,27 +390,9 @@ int main(int argc, char **argv)
         loopEnd=numEntries;
     }
     
-    // for(Long64_t event=0;event<loopedEntries;event++) {
-    for(Long64_t event=loopStart;event<loopEnd;event++) {
-    // for(Long64_t event=53530;event<53539;event++) {  //Debugging and running over events near desired event to save time in loop.
-    // for(Long64_t event=650;event<700;event++) {  //Debugging and running over events enar desired event to save time in loop.    
+    for(Long64_t event=loopStart;event<loopEnd;event++) {  
         fp->cd();
-        eventTree->GetEntry(event);
-        // if (rawAtriEvPtr->eventNumber != 53535){  //Test for A4 Run 6128
-        //     continue;
-        // }
-
-        // if (rawAtriEvPtr->eventNumber != 387){  //Test for A4 Run 6119
-        //     continue;
-        // }
-        
-        // if (rawAtriEvPtr->eventNumber != 679){  //Test for A2 Run 12559
-        //     continue;
-        // }       
-        
-        //Set event number for output
-        // eventNumber = rawAtriEvPtr->eventNumber;
-        
+        eventTree->GetEntry(event);        
         
         if (not calibrated) {
             cout << "Triggering uncalibrated data-like condition." << endl;
@@ -404,19 +406,24 @@ int main(int argc, char **argv)
         Position diff_true;
         
         //Set event number for output
-        eventNumber = usefulAtriEvPtr->eventNumber;        
+        if (dataLike) {
+            eventNumber = usefulAtriEvPtr->eventNumber;   
+        }
+        else {
+            eventNumber = event;
+        }
         if (not dataLike){
             std::vector<double> event_position;
             event_position.push_back(eventPtr->Nu_Interaction[0].posnu.GetX());
             event_position.push_back(eventPtr->Nu_Interaction[0].posnu.GetY());
             event_position.push_back(eventPtr->Nu_Interaction[0].posnu.GetZ());
-            // printf("Posnu %.2f, %.2f, %.2f \n", event_position[0], event_position[1], event_position[2]);
+            printf("Posnu %.2f, %.2f, %.2f \n", event_position[0], event_position[1], event_position[2]);
 
             std::vector<double> difference;
             difference.push_back(event_position[0] - average_position[0]);
             difference.push_back(event_position[1] - average_position[1]);
             difference.push_back(event_position[2] - average_position[2]);
-            // printf("Difference %.2f, %.2f, %.2f \n", difference[0], difference[1], difference[2]);
+            printf("Difference %.2f, %.2f, %.2f \n", difference[0], difference[1], difference[2]);
 
             
             diff_true.SetXYZ(difference[0], difference[1], difference[2]);
@@ -436,7 +443,11 @@ int main(int argc, char **argv)
         char plotTitle[500];
         sprintf(plotTitle,"A%i Run %s Event %i", station, runNum, eventNumber);        
         TCanvas *c = new TCanvas(plotTitle,plotTitle, 1600, 1600);
-        c->Divide(4,4);             
+        c->Divide(4,4);      
+        
+        if (not debugMode) {        
+            delete c;
+        }
         
         //TODO: Implement independent loop for double peak finder that checks parter VPol and HPol channels to find the cutoff times.
         for (int i=0; i<8; i++){
@@ -445,9 +456,7 @@ int main(int argc, char **argv)
             TGraph *grH = usefulAtriEvPtr->getGraphFromRFChan(i+8);
             TGraph *grIntV = FFTtools::getInterpolatedGraph(grV, dt);  //Real data interpolation
             TGraph *grIntH = FFTtools::getInterpolatedGraph(grH, dt);  //Real data interpolation
-            
 
- 
             vector<double> vvHitTimes; // vector of hit times
             vector<double> vvPeakIntPowers; // vector of peak values   
             vector<double> hhHitTimes; // vector of hit times
@@ -500,7 +509,7 @@ int main(int argc, char **argv)
                 cout <<"primaryPeakIntPowers[1] = " << primaryPeakIntPowers[1] << endl;
             }
             if (primaryPeakIntPowers[1] > peakThreshold and primaryPeakIntPowers[1] > 0.5*primaryPeakIntPowers[0]) {
-                cout << "Assuming double-peak signal." << endl;
+                // cout << "Assuming double-peak signal." << endl;
                 if(primaryHitTimes[1]>primaryHitTimes[0]) {
                     firstPeak = primaryHitTimes[0];
                     secondPeak = primaryHitTimes[1];
@@ -523,7 +532,7 @@ int main(int argc, char **argv)
                 refPeakTimes[i+8] = secondPeak;                   
             }
             else {
-                cout << "Assuming single-peak signal." << endl;                
+                // cout << "Assuming single-peak signal." << endl;                
                 cutoffTime[i] = grIntV->GetX()[grIntV->GetN() - 1];
                 cutoffTime[i+8] = grIntH->GetX()[grIntH->GetN() - 1];
                 
@@ -639,14 +648,13 @@ int main(int argc, char **argv)
             
             
         }
+        
 
         if (debugMode){      
             char title[500];
-            sprintf(title, "waveform.png");
+            sprintf(title, "%s/waveform.png", outputDir);
             c->Print(title);
         }
-
-        
     
         std::map<int, double> snrs; // map of channels to SNRs
         for(int i=0; i<16; i++){
@@ -660,27 +668,18 @@ int main(int argc, char **argv)
                 snrs[i] = peak_max/noiseRms[i];
             }
         }
+        
+        // cout << "bbb" << endl;
         std::vector<double> snrs_v;
         std::vector<double> snrs_h;
         for(int i=0; i<8; i++) snrs_v.push_back(snrs[i]);
         for(int i=8; i<16; i++) snrs_h.push_back(snrs[i]);
+        // cout << "ccc" << endl;
         //Grabs median-ish snr (third largest of eight) and stores as the VSNR and HSNR. 
         sort(snrs_v.begin(), snrs_v.end(), greater<double>()); // sort largest to smallest
         sort(snrs_h.begin(), snrs_h.end(), greater<double>()); // sort largest to smallest
         double the_snr_v = snrs_v[2];
         double the_snr_h = snrs_h[2];
-        
-        //Adding condition where if the SNR is less than 8, we bypass the event.
-        // cout << "the_snr_v = " << the_snr_v << endl;
-        // cout << "the_snr_h = " << the_snr_h << endl;
-        // if (the_snr_v < 8 and the_snr_h < 8) {
-        //     cout << "Event below SNR threshold.  Bypassing event." << endl;
-        //     v_snr_out = the_snr_v;
-        //     h_snr_out = the_snr_h;            
-        //     outTree->Fill();
-        //     continue;
-        // }
-        //End SNR cut.
 
         std::map<int, double> weights_V; // V weights
         double tot_weight_v = 0.;
@@ -697,6 +696,7 @@ int main(int argc, char **argv)
             tot_weight_v+=snr_prod;
             weights_V[pairNum] = snr_prod;
         }
+
         for(int i=0; i<weights_V.size(); i++){ weights_V[i]/=tot_weight_v; }
 
         std::map<int, double> weights_H; // H weights
@@ -714,8 +714,9 @@ int main(int argc, char **argv)
             tot_weight_h+=snr_prod;
             weights_H[pairNum] = snr_prod;
         }
-        for(int i=0; i<weights_H.size(); i++){ weights_H[i]/=tot_weight_h; }
+        
 
+        for(int i=0; i<weights_H.size(); i++){ weights_H[i]/=tot_weight_h; }      
         std::vector<TGraph*> corrFunctions_V = theCorrelators[0]->GetCorrFunctions(pairs_V, interpolatedWaveforms, true); 
         std::vector<TGraph*> corrFunctions_H = theCorrelators[0]->GetCorrFunctions(pairs_H, interpolatedWaveforms, true); 
 
@@ -733,36 +734,6 @@ int main(int argc, char **argv)
             maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, 0, weights_H)); // direct solution
             maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, 1, weights_H)); // reflected solution
             
-            if (debugMode){
-                // Debugging - JCF 6/7/2023
-                TCanvas *c = new TCanvas("","", 1200, 950);            
-                maps[0]->Draw("colz");
-                // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
-                // maps[0]->GetYaxis()->SetTitle("Theta [deg]");
-                maps[0]->GetXaxis()->SetTitle("Azimuth [degrees]");
-                maps[0]->GetYaxis()->SetTitle("Zenith [degrees]");                
-                maps[0]->GetYaxis()->SetTitleSize(0.05);
-                maps[0]->GetYaxis()->SetLabelSize(0.03);
-                // maps[0]->GetYaxis()->SetTitleOffset(0.6);
-                maps[0]->GetYaxis()->SetTitleOffset(0.8);
-                maps[0]->GetXaxis()->SetTitleSize(0.05);
-                maps[0]->GetXaxis()->SetLabelSize(0.03);
-                // maps[0]->GetXaxis()->SetTitleOffset(0.6);
-                maps[0]->GetXaxis()->SetTitleOffset(0.8);
-                gStyle->SetOptStat(0);
-                maps[0]->GetXaxis()->CenterTitle();
-                maps[0]->GetYaxis()->CenterTitle();
-                gPad->SetRightMargin(0.15);
-                char title[500];
-                sprintf(title,"%.2f.png", radii[r]);
-                char plotTitle[500];
-                // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
-                sprintf(plotTitle,"ARA Station A%d SPICE Event", station);
-                maps[0]->SetTitle(plotTitle);
-                c->SaveAs(title);
-                delete c;
-                // End debugging
-            }            
 
             std::vector<double> bestOne;
             for(int i=0; i<4; i++){
@@ -785,10 +756,10 @@ int main(int argc, char **argv)
             if(element < 2){ peakPol.push_back(0); }
             else{peakPol.push_back(1);}
             
-            // if(element==0 || element ==2){ peakSol.push_back(0);}
-            // else if(element==1 || element ==3 ){ peakSol.push_back(1);}
+            if(element==0 || element ==2){ peakSol.push_back(0);}
+            else if(element==1 || element ==3 ){ peakSol.push_back(1);}
             //Forcing direct solution in the reconstruction
-            peakSol.push_back(0);
+            // peakSol.push_back(0);
 
             printf("    Correlated radius %.2f, Corr %.4f \n",radii[r], peakCorr);
 
@@ -796,6 +767,7 @@ int main(int argc, char **argv)
                 delete maps[i];
             }
         }
+        
         auto it = max_element(std::begin(peakCorrs), std::end(peakCorrs));
         int element = distance(peakCorrs.begin(), it);
 
@@ -815,34 +787,115 @@ int main(int argc, char **argv)
         bestR_out = radii[element];
         bestSol_out = peakSol[element];
         
+        
+        //Recreate map of best solution and plot it.
+        std::vector<TH2D*> maps;
+
+        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_V, corrFunctions_V, 0, weights_V)); // direct solution)
+        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_V, corrFunctions_V, 1, weights_V)); // reflected solution
+        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_H, corrFunctions_H, 0, weights_H)); // direct solution
+        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_H, corrFunctions_H, 1, weights_H)); // reflected solution     
+        
+
+        if (debugMode){
+        
+                // Debugging - JCF 6/7/2023
+                TCanvas *c = new TCanvas("","", 1200, 950);            
+                maps[0]->Draw("colz");
+                // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
+                // maps[0]->GetYaxis()->SetTitle("Theta [deg]");
+                maps[0]->GetXaxis()->SetTitle("Azimuth [degrees]");
+                maps[0]->GetYaxis()->SetTitle("Zenith [degrees]");                
+                maps[0]->GetYaxis()->SetTitleSize(0.05);
+                maps[0]->GetYaxis()->SetLabelSize(0.03);
+                // maps[0]->GetYaxis()->SetTitleOffset(0.6);
+                maps[0]->GetYaxis()->SetTitleOffset(0.8);
+                maps[0]->GetXaxis()->SetTitleSize(0.05);
+                maps[0]->GetXaxis()->SetLabelSize(0.03);
+                // maps[0]->GetXaxis()->SetTitleOffset(0.6);
+                maps[0]->GetXaxis()->SetTitleOffset(0.8);
+                gStyle->SetOptStat(0);
+                maps[0]->GetXaxis()->CenterTitle();
+                maps[0]->GetYaxis()->CenterTitle();
+                gPad->SetRightMargin(0.15);
+                char title[500];
+                sprintf(title,"%s/bestDsolutionMap.png", outputDir);
+                char plotTitle[500];
+                // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
+                sprintf(plotTitle,"A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
+                maps[0]->SetTitle(plotTitle);
+                c->SaveAs(title);
+                delete c;
+        }
+        if (debugMode){
+
+                TCanvas *c = new TCanvas("","", 1200, 950);            
+                maps[1]->Draw("colz");
+                // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
+                // maps[0]->GetYaxis()->SetTitle("Theta [deg]");
+                maps[1]->GetXaxis()->SetTitle("Azimuth [degrees]");
+                maps[1]->GetYaxis()->SetTitle("Zenith [degrees]");                
+                maps[1]->GetYaxis()->SetTitleSize(0.05);
+                maps[1]->GetYaxis()->SetLabelSize(0.03);
+                // maps[0]->GetYaxis()->SetTitleOffset(0.6);
+                maps[1]->GetYaxis()->SetTitleOffset(0.8);
+                maps[1]->GetXaxis()->SetTitleSize(0.05);
+                maps[1]->GetXaxis()->SetLabelSize(0.03);
+                // maps[0]->GetXaxis()->SetTitleOffset(0.6);
+                maps[1]->GetXaxis()->SetTitleOffset(0.8);
+                gStyle->SetOptStat(0);
+                maps[1]->GetXaxis()->CenterTitle();
+                maps[1]->GetYaxis()->CenterTitle();
+                gPad->SetRightMargin(0.15);
+                char title[500];
+                sprintf(title,"%s/bestRsolutionMap.png", outputDir);
+                char plotTitle[500];
+                // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
+                sprintf(plotTitle,"A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
+                maps[1]->SetTitle(plotTitle);
+                c->SaveAs(title);
+                delete c;
+                // End debugging
+        }
+        for(int i=0; i<4; i++){
+            delete maps[i];
+        }     
+
+        
         // then the true quantities (if applicable)
         if (not dataLike) {
-            // int likely_sol = guess_triggering_solution(eventPtr, reportPtr);
-            int likely_sol = 0;  //Forcing solution to zero since we set up the double peak finder to look for the D pulse.
+            int likely_sol = guess_triggering_solution(eventPtr, reportPtr);
+            // int likely_sol = 0;  //Forcing solution to zero since we set up the double peak finder to look for the D pulse.
             std::map<int, double> thetas_truth = get_value_from_mc_truth("theta", likely_sol, reportPtr);
             std::map<int, double> phis_truth = get_value_from_mc_truth("phi", likely_sol, reportPtr);
-            // std::map<int, double> launch_thetas_truth = get_value_from_mc_truth("theta_launch", likely_sol, reportPtr);
-            // std::map<int, double> launch_phis_truth = get_value_from_mc_truth("phi_launch", likely_sol, reportPtr);            
+            std::map<int, double> launch_thetas_truth = get_value_from_mc_truth("theta_launch", likely_sol, reportPtr);
+            std::map<int, double> launch_phis_truth = get_value_from_mc_truth("phi_launch", likely_sol, reportPtr);            
         
             for(int i=0; i<16; i++){
                 double this_true_theta = thetas_truth.find(i)->second;
                 double this_true_phi = phis_truth.find(i)->second;
-                // double this_true_launch_theta = launch_thetas_truth.find(i)->second;
-                // double this_true_launch_phi = launch_phis_truth.find(i)->second;                
+                double this_true_launch_theta = launch_thetas_truth.find(i)->second;
+                double this_true_launch_phi = launch_phis_truth.find(i)->second;                
                 // printf("  Ant %d, True Arrival Theta %.2f, Reco Arrival Phi %.2f \n",
                 //     i, this_true_theta, this_true_phi
                 // );
                 true_arrivalThetas_out[i] = this_true_theta*180/PI;
                 true_arrivalPhis_out[i] = this_true_phi*180/PI; 
-                // true_launchThetas_out[i] = this_true_launch_theta*180/PI;
-                // true_launchPhis_out[i] = this_true_launch_phi*180/PI;                 
+                true_launchThetas_out[i] = this_true_launch_theta*180/PI;
+                true_launchPhis_out[i] = this_true_launch_phi*180/PI;                 
             }
             trueTheta_out = 90 - diff_true.Theta() * TMath::RadToDeg();  //Converted to match the zenith in the reconstruction calculation.
             truePhi_out = (std::fmod((diff_true.Phi() * TMath::RadToDeg())+180,360))-180;
             trueR_out = diff_true.R();
             likelySol_out = likely_sol; //The output for this is a large negative number, even when likely_sol is hardcoded to zero.
             
-        }        
+            thetas_truth.clear();
+            phis_truth.clear();
+            launch_thetas_truth.clear();
+            launch_phis_truth.clear();
+            
+        }   
+
         
         for(int i=0; i<16; i++){
 
@@ -863,17 +916,17 @@ int main(int argc, char **argv)
             );
             
             double this_launchTheta, this_launchPhi;
-            // theCorrelators[element]->LookupLaunchAngles(i, peakSol[element], 
-            //     this_binTheta, this_binPhi,
-            //     this_launchTheta, this_launchPhi
-            // );            
+            theCorrelators[element]->LookupLaunchAngles(i, peakSol[element], 
+                this_binTheta, this_binPhi,
+                this_launchTheta, this_launchPhi
+            );            
 
             double this_arrivalTime = theCorrelators[element]->LookupArrivalTimes(i, peakSol[element], this_binTheta, this_binPhi);
             reco_arrivalThetas_out[i] = this_arrivalTheta*180/PI; //Previous saved in radians, Converting to degrees - JCF 4/11/2024
             reco_arrivalPhis_out[i] = this_arrivalPhi*180/PI; 
             arrivalTimes_out[i] = this_arrivalTime;
-            // reco_launchThetas_out[i] = this_launchTheta*180/PI;
-            // reco_launchPhis_out[i] = this_launchPhi*180/PI;             
+            reco_launchThetas_out[i] = this_launchTheta*180/PI;
+            reco_launchPhis_out[i] = this_launchPhi*180/PI;             
             if (debugMode) {
                 cout << "*******************************" << endl;
                 cout << "i = " << i << endl;
@@ -883,32 +936,12 @@ int main(int argc, char **argv)
                 cout << "this_arrivalTime = " << this_arrivalTime << endl;
                 cout << "reco_arrivalThetas_out[i] = " << reco_arrivalThetas_out[i] << endl;
                 cout << "reco_arrivalPhis_out[i] = " << reco_arrivalPhis_out[i] << endl;
+                cout << "reco_launchThetas_out[i] = " << reco_launchThetas_out[i] << endl;
+                cout << "reco_launchPhis_out[i] = " << reco_launchPhis_out[i] << endl;                
                 cout << "*******************************" << endl;
             }            
         }
-        
-//         // then the true quantities (if applicable)
-//         if (not dataLike) {
-//             // int likely_sol = guess_triggering_solution(eventPtr, reportPtr);
-//             int likely_sol = 0;  //Forcing solution to zero since we set up the double peak finder to look for the D pulse.
-//             std::map<int, double> thetas_truth = get_value_from_mc_truth("theta", likely_sol, reportPtr);
-//             std::map<int, double> phis_truth = get_value_from_mc_truth("phi", likely_sol, reportPtr);
-        
-//             for(int i=0; i<16; i++){
-//                 double this_true_theta = thetas_truth.find(i)->second;
-//                 double this_true_phi = phis_truth.find(i)->second;
-//                 // printf("  Ant %d, True Arrival Theta %.2f, Reco Arrival Phi %.2f \n",
-//                 //     i, this_true_theta, this_true_phi
-//                 // );
-//                 true_arrivalThetas_out[i] = this_true_theta*180/PI;
-//                 true_arrivalPhis_out[i] = this_true_phi*180/PI; 
-//             }
-//             trueTheta_out = diff_true.Theta() * TMath::RadToDeg();  //Converted to match the zenith in the reconstruction calculation.
-//             truePhi_out = diff_true.Phi() * TMath::RadToDeg();
-//             trueR_out = diff_true.R();
-//             likelySol_out = likely_sol; //The output for this is a large negative number, even when likely_sol is hardcoded to zero.
-            
-//         }
+
         
         weight_out = weight;
         for(int i=0; i<16; i++){
@@ -917,95 +950,8 @@ int main(int argc, char **argv)
         v_snr_out = the_snr_v;
         h_snr_out = the_snr_h;
 
-        outTree->Fill();
-        
-//         if (debugMode){
-//             //TCanvas for the coherently summed waveform separated by VPol and HPol
-//             TCanvas *cTimeshift = new TCanvas("","", 1600, 1600);
-//             cTimeshift->Divide(4,4);    
+        outTree->Fill();       
 
-//             double arrivalTimeMax = *max_element(arrivalTimes_out, arrivalTimes_out + 16);
-//             double arrivalTimeMin = *min_element(arrivalTimes_out, arrivalTimes_out + 16);
-            
-//             //Create array of channel pairs to exclude in the coherent sum
-//             std::vector<int> cswExcludedChannelPairs;
-//             for(int i=0; i<8; i++){
-//                 bool checkVpol = std::find(excludedChannels.begin(), excludedChannels.end(), i) != excludedChannels.end();
-//                 bool checkHpol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();
-//                 if (checkVpol or checkHpol) {
-//                     cout << "Excluding channel pair " << i << endl;
-//                     cswExcludedChannelPairs.push_back(i);
-//                 }
-                
-//             }
-
-//             for(int i=0; i<16; i++){
-                
-//                 //Check if channel is in the excluded channel list
-//                 bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
-
-//                 TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);
-//                 gr = FFTtools::cropWave(gr, gr->GetX()[0], cutoffTime[i]);
-
-//                 for(int k=0; k<gr->GetN(); k++){
-//                     gr->GetX()[k] = gr->GetX()[k] - arrivalTimes_out[i] + arrivalTimeMax;
-//                 }
-
-//                 cout << "Ch " << i << " time[0] = " << gr->GetX()[0] << endl;
-                
-//                 gr = FFTtools::getInterpolatedGraph(gr,dt);
-//                 // gr = FFTtools::getInterpolatedGraphFreqDom(gr,0.1);
-
-//                 cTimeshift->cd(i+1); gPad->SetGrid(1,1);
-//                 gr->Draw();
-//                 if (checkExcluded) {
-//                     gr->SetLineColor(2);
-//                 }
-//                 char vTitle[500];
-//                 sprintf(vTitle,"Ch. %.2d", i);
-//                 gr->SetTitle(vTitle);            
-
-//             }
-        
-
-//             char title[500];
-//             sprintf(title, "waveformTimeshift.png");
-//             cTimeshift->Print(title);
-            
-//             //Create coherent sum logic
-//             TGraph *cswVpol = new TGraph();
-//             TGraph *cswHpol = new TGraph();
-
-//             calculateCSW(usefulAtriEvPtr, excludedChannels, cutoffTime, arrivalTimes_out, cswVpol, cswHpol);
-            
-//             cout << "Sizes of csw TGraphs: "<< endl;
-//             cout << "cswVpol->GetN() = " << cswVpol->GetN() << endl;
-//             cout << "cswHpol->GetN() = " << cswHpol->GetN() << endl;
-            
-//             cout << "Creating TCanvas for CSW" << endl;
-//             TCanvas *cCsw = new TCanvas("","", 1600, 1600);
-//             cCsw->Divide(1,2); 
-            
-//             cCsw->cd(1); gPad->SetGrid(1,1);
-//             cswVpol->Draw();
-//             char vCswTitle[500];
-//             sprintf(vCswTitle,"VPol");
-//             cswVpol->SetTitle(vCswTitle);
-            
-//             cCsw->cd(2); gPad->SetGrid(1,1);
-//             cswHpol->Draw();
-//             char hCswTitle[500];
-//             sprintf(hCswTitle,"HPol");
-//             cswHpol->SetTitle(hCswTitle);
-            
-//             char cswTitle[500];
-//             sprintf(cswTitle, "waveformCSW.png");
-//             cCsw->Print(cswTitle);            
-            
-            
-//         }                       
-
-    
     }
 
     // write output
