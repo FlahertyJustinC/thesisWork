@@ -127,6 +127,8 @@ int main(int argc, char **argv)
     simSettingsTree=(TTree*) fp->Get("AraTree");
     bool dataLike = false;
     bool calibrated;
+    
+    AraGeomTool *geomTool = AraGeomTool::Instance();
 
     
     //Trying condition where it checks for usefulAtriStation branch and imports according to that.
@@ -170,9 +172,18 @@ int main(int argc, char **argv)
     double arrivalTimes[16];
     double directPeakTimes[16];
     double refPeakTimes[16];   
-    double psiReco[16];  
-    double psiRecoCsw[16];  
+    double psiReco[8];  
+    double psiRecoCsw[8];  
     double bestCorr;
+    double hilbertPeakOut[16];
+    double peakTimeOut[16];
+    double launch_theta[16];
+    double launch_phi[16];
+    double theta_nutraject[8];
+    double phi_nutraject[8];
+    double vertexRadius;
+    double vertexTheta;
+    double vertexPhi;
 
     double v_snr;
     double h_snr;
@@ -181,11 +192,21 @@ int main(int argc, char **argv)
     if (useMCTruth){
         vertexReco->SetBranchAddress("true_arrivalThetas", reco_arrivalThetas);
         vertexReco->SetBranchAddress("true_arrivalPhis", reco_arrivalPhis);  
+        vertexReco->SetBranchAddress("true_launchThetas", launch_theta);
+        vertexReco->SetBranchAddress("true_launchPhis", launch_phi);
+        vertexReco->SetBranchAddress("trueR", &vertexRadius);
+        vertexReco->SetBranchAddress("trueTheta", &vertexTheta);
+        vertexReco->SetBranchAddress("truePhi", &vertexPhi);           
     }
     // end testing
     else {
         vertexReco->SetBranchAddress("reco_arrivalThetas", reco_arrivalThetas);
         vertexReco->SetBranchAddress("reco_arrivalPhis", reco_arrivalPhis);
+        vertexReco->SetBranchAddress("reco_launchThetas", launch_theta);
+        vertexReco->SetBranchAddress("reco_launchPhis", launch_phi);
+        vertexReco->SetBranchAddress("bestR", &vertexRadius);
+        vertexReco->SetBranchAddress("bestTheta", &vertexTheta);
+        vertexReco->SetBranchAddress("bestPhi", &vertexPhi);        
     }
     vertexReco->SetBranchAddress("cutoffTime", cutoffTime);
     vertexReco->SetBranchAddress("arrivalTimes", arrivalTimes);
@@ -195,6 +216,7 @@ int main(int argc, char **argv)
     vertexReco->SetBranchAddress("directPeakTimes", &directPeakTimes);  
     vertexReco->SetBranchAddress("refPeakTimes", &refPeakTimes);   
     vertexReco->SetBranchAddress("bestCorr", &bestCorr);
+
     Long64_t numEntriesVertex=vertexReco->GetEntries();
     cout << "Vertex Reco tree opened! Has " << numEntriesVertex << " entries!" << endl;;
     
@@ -209,6 +231,7 @@ int main(int argc, char **argv)
     IceModel *icemodel=new IceModel(settings1->ICE_MODEL + settings1->NOFZ*10,settings1->CONSTANTICETHICKNESS * 1000 + settings1->CONSTANTCRUST * 100 + settings1->FIXEDELEVATION * 10 + 0,settings1->MOOREBAY);// creates Antarctica ice model
     Detector *detector = new Detector(settings1, icemodel, setupfile);  
     Report *report = new Report(detector, settings1);
+    // Position *station_position = new Position(get_detector_cog(detector));
     
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
     std::vector<int> excludedChannels; 
@@ -229,13 +252,19 @@ int main(int argc, char **argv)
     if(!fpOut){ std::cerr<<"Cannot open output file "<<fpOut<<std::endl; return -1; }    
     
     TTree *outTree = new TTree("eventTree", "eventTree");
-    TTree *outTreeCsw = new TTree("coherentSum", "coherentSum");
     outTree->Branch("UsefulAtriStationEvent", &usefulAtriEvPtrOut);
     outTree->Branch("bestCorr", &bestCorr, "bestCorr/D");
-    // outTree->Branch("psiReco", &psiReco, "psiReco[16]/D");
+    outTree->Branch("psiReco", &psiReco, "psiReco[8]/D");
+    outTree->Branch("theta_nutraject", &theta_nutraject, "theta_nutraject[8]/D");
+    outTree->Branch("phi_nutraject", &phi_nutraject, "phi_nutraject[8]/D");
+    // outTree->Branch("pulserDepth", &pulserDepth, "pulserDepth/D")
+    
+    TTree *outTreeCsw = new TTree("coherentSum", "coherentSum");
     outTreeCsw->Branch("UsefulAtriStationEvent", &usefulAtriCswPtrOut); 
     outTreeCsw->Branch("bestCorr", &bestCorr, "bestCorr/D");
-    // outTree->Branch("psiReco", &psiRecoCsw, "psiReco[16]/D");
+    outTreeCsw->Branch("psiReco", &psiRecoCsw, "psiReco[8]/D");
+    // outTreeCsw->Branch("pulserDepth", &pulserDepth, "pulserDepth/D")
+    
     
     //Need to grab lengths of voltage and time arrays from eventTree to initialize the branches in the outfile.
     Int_t fNumChannels; ///< The number of channels
@@ -268,13 +297,13 @@ int main(int argc, char **argv)
         eventTree->GetEntry(event);
         
         cout << "Importing vertex reco info" << endl;
-        // vertexReco->GetEntry(event);
-        if (debugMode) {
-            vertexReco->GetEntry(0);  //For debugging purposes.  TODO: Change back!
-        }
-        else {
-            vertexReco->GetEntry(event);
-        }
+        vertexReco->GetEntry(event);
+        // if (debugMode) {
+        //     vertexReco->GetEntry(0);  //For debugging purposes.  TODO: Change back!
+        // }
+        // else {
+        //     vertexReco->GetEntry(event);
+        // }
         
         //Adding peak correlation cut
         if (bestCorr < minCorr) {
@@ -306,16 +335,16 @@ int main(int argc, char **argv)
                 cout << "Channel = " << i << endl;
                 cout << "usefulAtriEvPtr->stationId = " << usefulAtriEvPtr->stationId << endl;
             }
-            cout << "aaa" << endl;
+            // cout << "aaa" << endl;
             TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);
-            cout << "bbb" << endl;
+            // cout << "bbb" << endl;
             TGraph *grOriginal = gr;
-            cout << "ccc" << endl;
+            // cout << "ccc" << endl;
             //Save initial and final time for truncating the padded arrays before output.
             double timeStart = gr->GetX()[0];
-            cout << "ddd" << endl;
+            // cout << "ddd" << endl;
             double timeEnd = gr->GetX()[gr->GetN()-1];
-            cout << "eee" << endl;
+            // cout << "eee" << endl;
             
             if (debugMode) {
                 cout << "timeStart = " << timeStart << endl;
@@ -822,7 +851,7 @@ int main(int argc, char **argv)
             for (int n = 0; n < settings1->NFOUR / 2; n++)
             // for (int n = 0; n < waveform_bin; n++)
             {
-                int elecChan = AraGeomTool::Instance()->getElecChanFromRFChan(i, settings1->DETECTOR_STATION);
+                int elecChan = geomTool->getElecChanFromRFChan(i, settings1->DETECTOR_STATION);
                 // not pure noise mode (we need signal)
                 //Testing cropping the waveform padding
                 if ((T_forint[n] > timeStart-timeShift) and (T_forint[n] < timeEnd-timeShift)) { 
@@ -840,6 +869,18 @@ int main(int argc, char **argv)
         usefulAtriEvPtrOut->eventNumber = usefulAtriEvPtr->eventNumber;
         usefulAtriEvPtrOut->unixTime = usefulAtriEvPtr->unixTime;
         
+        //Calculate hilbert peaks and polarization angles.
+        peakHilbert(usefulAtriEvPtrOut, hilbertPeakOut, peakTimeOut, cutoffTime, dt);
+        calculatePsi(hilbertPeakOut, psiReco);       
+        double nofz_atVertex = getNofzAtVertex(geomTool, usefulAtriEvPtrOut, icemodel, vertexRadius, vertexTheta);
+        // double nofz_atVertex = 1.78;
+        // cout << "nofz = " << nofz_atVertex << endl;
+        for (int i=0; i<8; i++) {
+            // cout << "i = " << i << endl;
+            // cout << "launch_theta[i] = " << launch_theta[i] << endl;
+            // cout << "launch_phi[i] = " << launch_phi[i] << endl;
+            calculateNuTrajectory(psiReco[i]*PI/180, launch_theta[i]*PI/180, launch_phi[i]*PI/180, nofz_atVertex, theta_nutraject[i], phi_nutraject[i]);
+        }
         
 
         //Assign timestamp values to help identify calpulsers
@@ -913,7 +954,7 @@ int main(int argc, char **argv)
 
 
             char title[500];
-            sprintf(title, "waveformDeconvolved_%s.png", runNumber);
+            sprintf(title, "%s/waveformDeconvolved_%s.png", outputDir, runNumber);
             cTimeshift->Print(title);  
         }
         
@@ -947,13 +988,13 @@ int main(int argc, char **argv)
             cswHpol->SetTitle(hCswTitle);
 
             char cswTitle[500];
-            sprintf(cswTitle, "waveformCSW_%s.png", runNumber);
+            sprintf(cswTitle, "%s/waveformCSW_%s.png", outputDir, runNumber);
             cCsw->Print(cswTitle);   
         }
         
         for (int ch=0; ch<16; ch++) {
             for (int i=0; i<cswVpol->GetN(); i++){
-                int elecChan = AraGeomTool::Instance()->getElecChanFromRFChan(ch, settings1->DETECTOR_STATION);
+                int elecChan = geomTool->getElecChanFromRFChan(ch, settings1->DETECTOR_STATION);
                 //Vpol
                 if (ch<8) {
                     usefulAtriCswPtrOut->fVolts[elecChan].push_back(cswVpol->GetY()[i]);
@@ -972,7 +1013,7 @@ int main(int argc, char **argv)
             usefulAtriEvPtrOut->fTimes.clear();             
             for (int ch=0; ch<16; ch++) {
                 for (int i=0; i<cswVpol->GetN(); i++){
-                    int elecChan = AraGeomTool::Instance()->getElecChanFromRFChan(ch, settings1->DETECTOR_STATION);
+                    int elecChan = geomTool->getElecChanFromRFChan(ch, settings1->DETECTOR_STATION);
                     //Vpol
                     if (ch<8) {
                         usefulAtriEvPtrOut->fVolts[elecChan].push_back(cswVpol->GetY()[i]);
@@ -1043,8 +1084,32 @@ int main(int argc, char **argv)
 
 
             char title[500];
-            sprintf(title, "waveformDeconvolvedTimeshifted_%s.png", runNumber);
+            sprintf(title, "%s/waveformDeconvolvedTimeshifted_%s.png", outputDir, runNumber);
             c2->Print(title); 
+        }
+        
+        if (debugMode) {
+            //Testing peakHilbert function
+            peakHilbert(usefulAtriEvPtrOut, hilbertPeakOut, peakTimeOut, cutoffTime, dt);
+            cout << "hilbertPeakOut = " << endl;
+            for (int k=0; k<16; k++) {
+                cout << hilbertPeakOut[k] << ", ";
+            }
+            cout << endl;
+            cout << "peakTimeOut = " << endl;
+            for (int k=0; k<16; k++) {
+                cout << peakTimeOut[k] << ", ";
+            }
+            cout << endl;
+            
+            calculatePsi(hilbertPeakOut, psiReco);
+            cout << "psi = " << endl;
+            for (int k=0; k<8; k++) {
+                cout << psiReco[k] << ", ";
+            }
+            cout << endl;         
+            
+            
         }
         
         usefulAtriCswPtrOut->fVolts.clear();

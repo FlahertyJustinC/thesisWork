@@ -27,6 +27,7 @@ using namespace std;
 
 #include "FFTtools.h"
 #include "Tools.h"
+#include "helper.h"
 
 double integrateBinPower( TGraph *plot, int numBinsToIntegrate, vector<double> &integratedBins)
 {
@@ -160,30 +161,43 @@ void getExcludedChannels(std::vector<int> &excludedChannels, Settings *settings1
         excludedChannels.push_back(3); 
         excludedChannels.push_back(5); 
         excludedChannels.push_back(6); 
-        //Testing keeping flat channels in CSW histogram
+    }    
+    if (settings1->DETECTOR_STATION==3){
+        cout << "Using station 3.  Excluding channel 1, 3 in addition to the masking." << endl;
         // excludedChannels.push_back(0);
-        // excludedChannels.push_back(2);
+        excludedChannels.push_back(1);
+        excludedChannels.push_back(3);
     }    
     if (settings1->DETECTOR_STATION==4){
         cout << "Using station 4.  Excluding channels 0 in addition to the masking." << endl;
-        excludedChannels.push_back(0);  //Testing removing a channel for A4 as only the R pulse makes it into the waveform.
-        // excludedChannels.push_back(4); 
-        // excludedChannels.push_back(8);
+        excludedChannels.push_back(0);
     }
+    if (settings1->DETECTOR_STATION==5){
+        cout << "Using station 5.  Excluding channels 2, 6, 10, 14 in addition to the masking." << endl;
+        excludedChannels.push_back(2);
+        excludedChannels.push_back(6); 
+        excludedChannels.push_back(10);
+        excludedChannels.push_back(14);
+    }    
     for (int i=0; i<16; i++){
         // cout << "detector->GetTrigMasking(i) = " << detector->GetTrigMasking(i) << endl;
         if (not detector->GetTrigMasking(i)){
-            cout << "Excluding channel " << i << endl;
+            // cout << "Excluding channel " << i << endl;
             excludedChannels.push_back(i);
         }
-    }       
+    }
+    cout << "Excluded Channels: ";
+    for (int i: excludedChannels) {
+        cout << i << ", ";
+    }
+    cout << endl;
 }
 
 double calculateNoiseRMS(TGraph *gr, int sampleNumber=100) {
     int totalSampleNumber = abs(sampleNumber);
     int waveformLength = gr->GetN();
     double voltageSubset[totalSampleNumber];
-    if (sampleNumber<0){
+    if (sampleNumber>0){
         //Loop over beginning of waveform for noise
         for(int j=0; j<totalSampleNumber; j++){
             voltageSubset[j] = gr->GetY()[j];
@@ -259,7 +273,8 @@ void calculateCSW(UsefulAtriStationEvent *usefulAtriEvPtr, std::vector<int> excl
                 
             }
             if (cropTimes[i] < gr->GetX()[0]+sampleNs) {
-                cswExcludedChannelPairs.push_back(i);
+                if (debugMode) {cout << "Bypassing channel" << endl;}
+                cswExcludedChannelPairs.push_back(i%8);
                 continue;
             }
             //Crop to D-pulse only.
@@ -320,8 +335,13 @@ void calculateCSW(UsefulAtriStationEvent *usefulAtriEvPtr, std::vector<int> excl
     //Loop over waveforms and crop to the global tMin and tMax
     for (int i=0; i<16; i++) {
         bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i%8) != cswExcludedChannelPairs.end();
-        if (not checkExcluded) {        
-            mapWaveforms[i] = FFTtools::cropWave(mapWaveforms[i], tMin, tMax);
+        if (not checkExcluded) {
+            if (debugMode) {
+                cout << "i = " << i << endl;
+                cout << "mapWaveforms[i]->GetX()[0] = " << mapWaveforms[i]->GetX()[0] << endl;
+                cout << "mapWaveforms[i]->GetX()[mapWaveforms[i]->GetN()-1] = " << mapWaveforms[i]->GetX()[mapWaveforms[i]->GetN()-1] << endl;
+            }
+            mapWaveforms[i] = FFTtools::cropWave(mapWaveforms[i], tMin, tMax);  //Seg fault is here!
             
             if (mapWaveforms[i]->GetN() == 0) {
                 cswExcludedChannelPairs.push_back(i);
@@ -579,3 +599,191 @@ void getPowerSpectrumSNR(TGraph *gr, double tNoiseMin, double tNoiseMax, double 
         }
     }  
 }
+
+double peakHilbert(UsefulAtriStationEvent *usefulAtriEvPtr, double* hilbertPeakOut, double* peakTimeOut, double* cutoffTime, double dt, double toleranceNs=30) {
+    //Loop over channel pairs and import VPol and HPol waveforms.
+    for (int channelPair=0; channelPair<8; channelPair++) {
+        // cout << "Channel Pair = " << channelPair << endl;
+        // if (channelPair != 0) {
+        //     continue;
+        // }
+        //Import waveforms
+        TGraph *grV = usefulAtriEvPtr->getGraphFromRFChan(channelPair);
+        TGraph *grH = usefulAtriEvPtr->getGraphFromRFChan(channelPair+8);
+        // cout << "grV->GetN() = " << grV->GetN() << endl;
+        // cout << "grH->GetN() = " << grH->GetN() << endl;
+        //Interpolate to desired dt
+        grV = FFTtools::getInterpolatedGraph(grV,dt);
+        grH = FFTtools::getInterpolatedGraph(grH,dt);
+        // cout << "grV->GetN() = " << grV->GetN() << endl;
+        // cout << "grH->GetN() = " << grH->GetN() << endl;        
+        //Crop waves to their cutoff time to maintain Direct solution
+        grV = FFTtools::cropWave(grV, grV->GetX()[0], cutoffTime[channelPair]);
+        grH = FFTtools::cropWave(grH, grH->GetX()[0], cutoffTime[channelPair+8]);
+        // cout << "grV->GetN() = " << grV->GetN() << endl;
+        // cout << "grH->GetN() = " << grH->GetN() << endl;        
+        //Get Hilbert envelope of each waveform
+        TGraph *hilbertV = FFTtools::getHilbertEnvelope(grV);
+        TGraph *hilbertH = FFTtools::getHilbertEnvelope(grH);
+        
+        //Get peaks of Hilbert Envelopes
+        double peakV = TMath::MaxElement(hilbertV->GetN(), hilbertV->GetY());
+        double peakH = TMath::MaxElement(hilbertH->GetN(), hilbertH->GetY());
+        
+        //Identify primary channel that has a larger Hilbert peak and add conditional statement to set primary and secondary waveforms
+        TGraph *primaryHilbert;
+        TGraph *secondaryHilbert;
+        double *peakPrimary;
+        double *peakTimePrimary;
+        double *peakSecondary;
+        double *peakTimeSecondary;
+        // cout << "peakV = " << peakV << endl;
+        // cout << "peakH = " << peakH << endl;
+        if (peakV >= peakH) {
+            // cout << "aaa" << endl;
+            primaryHilbert = hilbertV;
+            secondaryHilbert = hilbertH;
+            // hilbertPeakOut[channelPair] = peakPrimary;
+            // peakTimeOut[channelPair] = peakTimePrimary;
+            // hilbertPeakOut[channelPair+8] = peakSecondary;
+            // peakTimeOut[channelPair+8] = peakTimeSecondary;
+            peakPrimary = &hilbertPeakOut[channelPair];
+            peakTimePrimary = &peakTimeOut[channelPair];
+            peakSecondary = &hilbertPeakOut[channelPair+8];
+            peakTimeSecondary = &peakTimeOut[channelPair+8];          
+            
+        }
+        else {
+            // cout << "bbb" << endl;
+            primaryHilbert = hilbertH;
+            secondaryHilbert = hilbertV; 
+            // hilbertPeakOut[channelPair] = peakSecondary;
+            // peakTimeOut[channelPair] = peakTimeSecondary;
+            // hilbertPeakOut[channelPair+8] = peakPrimary;
+            // peakTimeOut[channelPair+8] = peakTimePrimary;  
+            
+            peakPrimary = &hilbertPeakOut[channelPair+8];
+            peakTimePrimary = &peakTimeOut[channelPair+8];
+            peakSecondary = &hilbertPeakOut[channelPair];
+            peakTimeSecondary = &peakTimeOut[channelPair];               
+        }
+        
+        //Find peak of primary channel and get its time
+        int peakPrimaryIndex = TMath::LocMax(primaryHilbert->GetN(), primaryHilbert->GetY());
+        *peakPrimary = primaryHilbert->GetY()[peakPrimaryIndex];
+        *peakTimePrimary = primaryHilbert->GetX()[peakPrimaryIndex];
+        
+        // cout << "peakPrimary = " << *peakPrimary << endl;
+        // cout << "peakTimePrimary = " << *peakTimePrimary << endl;
+        
+        //Use peak location of primary channel to crop secondary channel to time window tolerance and find secondary peak
+        //Crop secondary Hilbert to be centered around the primary peak with the tolerance window
+        secondaryHilbert = FFTtools::cropWave(secondaryHilbert, *peakTimePrimary-toleranceNs, *peakTimePrimary+toleranceNs);
+        int peakSecondaryIndex = TMath::LocMax(secondaryHilbert->GetN(), secondaryHilbert->GetY());
+        *peakSecondary = secondaryHilbert->GetY()[peakSecondaryIndex];
+        *peakTimeSecondary = secondaryHilbert->GetX()[peakSecondaryIndex];        
+        
+        // cout << "peakSecondary = " << *peakSecondary << endl;
+        // cout << "peakTimeSecondary = " << *peakTimeSecondary << endl;   
+        // cout << "***************************" << endl;
+        
+    }
+    
+}
+
+void calculatePsi(double* hilbertPeaks, double* psiOut) {
+    // double psiOut[8];
+    double tanY;
+    double tanX;
+    
+    for (int channelPair=0; channelPair<8; channelPair++) {
+        tanY = TMath::Power(hilbertPeaks[channelPair+8],2);
+        tanX = TMath::Power(hilbertPeaks[channelPair],2);
+        psiOut[channelPair] = TMath::ATan2(tanY,tanX)*180/PI;
+    }
+}
+
+//TODO: Write this function for calculating the neutrino trajectory. Will likely need to update syntax of some functions, but wanted to get the math of it down.
+// void calculateNuTrajectory(double psi, double launch_theta, double launch_phi, double nofz, double &theta_nutraject, double &phi_nutraject) {
+//     //Calculate Cartesian components of neutrino trajectory.  Theta is defined from the vertical.
+//     double vx = 1/nofz*cos(launch_theta)*cos(launch_phi) - sqrt(1-1/pow(nofz,2))*(-cos(psi)*cos(launch_theta)*cos(launch_phi)+sin(psi)*sin(launch_phi));
+//     double vy = 1/nofz*sin(launch_theta)*cos(launch_phi) - sqrt(1-1/pow(nofz,2))*(-cos(psi)*cos(launch_theta)*sin(launch_phi)-sin(psi)*cos(launch_phi));
+//     double vz = 1/nofz*sin(launch_theta) - sqrt(1-1/pow(nofz,2))*(cos(psi)*sin(launch_theta));
+//     //Calculate theta and phi of the reconstructed neutrino trajectory
+//     theta_nutraject = acos(vz)*180/PI;
+//     phi_nutraject = atan2(vy,vx)*180/PI;
+//     cout << "##########################################################################################" << endl;
+    
+//     cout << "psi = " << psi << endl;
+//     cout << "launch_theta = " << launch_theta << endl;
+//     cout << "launch_phi = " << launch_phi << endl;    
+//     cout << "vx = " << vx << endl;
+//     cout << "vy = " << vy << endl;
+//     cout << "vz = " << vz << endl;
+//     cout << "theta_nutraject = " << theta_nutraject << endl;
+//     cout << "phi_nutraject = " << phi_nutraject << endl;
+// }
+
+void calculateNuTrajectory(double psi, double launch_theta, double launch_phi, double nofz, double &theta_nutraject, double &phi_nutraject) {
+    //Calculate polarization and launch vectors from the input angles
+    Vector launch_vector{sin(launch_theta)*cos(launch_phi), 
+                                      sin(launch_theta)*cos(launch_phi),
+                                      cos(launch_theta)};
+    Vector polarization_vector{-cos(psi)*cos(launch_theta)*cos(launch_phi)+sin(psi)*sin(launch_phi),
+                                            -cos(psi)*cos(launch_theta)*sin(launch_phi)-sin(psi)*cos(launch_phi),
+                                            cos(psi)*sin(launch_theta)};
+    Vector nutraject_vector = (1/nofz)*launch_vector - sqrt(1-1/(nofz*nofz))*polarization_vector;
+    
+    theta_nutraject = nutraject_vector.Theta()*180/PI;
+    phi_nutraject = nutraject_vector.Phi()*180/PI;
+    // cout << "##########################################################################################" << endl;
+    // cout << "psi = " << psi << endl;
+    // cout << "launch_vector.Mag() = " << launch_vector.Mag() << endl;
+    // cout << "polarization_vector.Mag() = " << polarization_vector.Mag() << endl;  
+    // cout << "nutraject_vector.Mag() = " << nutraject_vector.Mag() << endl; 
+    // cout << "nofz = " << nofz << endl;
+    // cout << "1/nofz = " << 1/nofz << endl;
+    // cout << "sqrt(1-1/(nofz*nofz))= " << sqrt(1-1/(nofz*nofz)) << endl;
+    // cout << "(1/nofz)^2 + (sqrt(1-1/(nofz*nofz)))^2 = " << (1/nofz)*(1/nofz) + (sqrt(1-1/(nofz*nofz)))*(sqrt(1-1/(nofz*nofz))) << endl;
+    // cout << "theta_nutraject = " << theta_nutraject << endl;
+    // cout << "phi_nutraject = " << phi_nutraject << endl;    
+    
+    
+    
+
+}
+
+double getNofzAtVertex(AraGeomTool *geomTool, UsefulAtriStationEvent *usefulAtri, IceModel *icemodel, double vertexRadius, double vertexTheta) {
+    //Calculate station center wrt surface
+    double station_z = 0;
+    for (int i=0; i<16; i++) {
+        station_z += geomTool->getStationInfo(usefulAtri->stationId)->getAntennaInfo(i)->antLocation[2]/16;
+    }
+    // double station_z = station_position[2];
+    // cout << "station_z = " << station_z << endl;
+    double vertex_z = station_z + vertexRadius*sin(vertexTheta);
+    // cout << "vertex_z = " << vertex_z << endl;
+    //Create position object for station location
+    // Position *position;
+    // position->Position()
+    double nofz_atVertex;
+    if (vertex_z > 0) {
+        nofz_atVertex = icemodel->GetN(-vertex_z);
+    }
+    else {  //Case for event resolving in the air.
+        nofz_atVertex = 1;
+    }
+    return nofz_atVertex;
+}
+
+// double getNofzAtVertex(Position *station_position, IceModel *icemodel, double vertexRadius, double vertexTheta) {
+//     double station_z = station_position->Mag();
+//     cout << "station_z = " << station_z << endl;
+//     double vertex_z = station_z + vertexRadius*sin(vertexTheta);
+//     cout << "vertex_z = " << vertex_z << endl;
+//     //Create position object for station location
+//     // Position *position;
+//     // position->Position()
+//     double nofz_atVertex = icemodel->GetN(-vertex_z);
+//     return nofz_atVertex;
+// }
