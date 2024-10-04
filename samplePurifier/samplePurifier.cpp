@@ -29,34 +29,10 @@ UsefulAtriStationEvent *usefulAtriEvPtrOut;
 #include "tools.h"
 
 bool debugMode = false;
-// int passedChannelThreshold = 3;
-
-// double calculateNoiseRMS(TGraph *gr, int sampleNumber=100) {
-//     int totalSampleNumber = abs(sampleNumber);
-//     int waveformLength = gr->GetN();
-//     double voltageSubset[totalSampleNumber];
-//     if (sampleNumber<0){
-//         //Loop over beginning of waveform for noise
-//         for(int j=0; j<totalSampleNumber; j++){
-//             voltageSubset[j] = gr->GetY()[j];
-//         }
-//     }
-//     else {
-//         //Loop over end of waveform for noise
-//         for(int j=0; j<totalSampleNumber; j++){
-//             voltageSubset[j] = gr->GetY()[waveformLength-1-j];
-//         }        
-//     }
-//     double noiseRms = TMath::RMS(totalSampleNumber,voltageSubset);
-    
-//     // cout << "noiseRms = " << noiseRms << endl;
-    
-//     if (noiseRms == 0) {
-//         noiseRms=1;
-//     }
-    
-//     return noiseRms;
-// }
+double dt=0.1; //dt for interpolation.  used to be 0.5
+//Frequencies for butterworth filter to suppress noise.
+double freqMin=200;
+double freqMax=300;
 
 int main(int argc, char **argv)
 {
@@ -69,6 +45,8 @@ int main(int argc, char **argv)
     //Todo: check if these values are the same across stations and configs, or if I need to make it dynamic 4/9/2024
     double interpV = 0.4;
     double interpH = 0.625;
+    double minSnr = 8;
+    double minTimeAfterStart = 60; //seconds.  Cuts events in the first 60 seconds of the run.
 
     // int station = atoi(argv[1]);  //This will be made redundant when we include the setupfile. 4/6/2024
     char* runNum = argv[1];
@@ -78,7 +56,7 @@ int main(int argc, char **argv)
     char* outputDir = argv[5];
 
     char outfile_name[400];
-    sprintf(outfile_name, "%s/purifiedSample_run_%s.root", outputDir, runNum);
+    sprintf(outfile_name, "%s/bandpassPurifiedSample_run_%s.root", outputDir, runNum);
     std::cout<<"Output name is "<<outfile_name<<std::endl;
     TFile *fpOut = TFile::Open(outfile_name, "RECREATE");
     if(!fpOut){ std::cerr<<"Cannot open output file "<<fpOut<<std::endl; return -1; }
@@ -107,22 +85,7 @@ int main(int argc, char **argv)
     cout << "eventTree has " << numEntries << " entries." << endl;
     RawAtriStationEvent *rawAtriEvPtr=0;
     
-    //Try importing paramters using the setup file
-    Settings *settings1 = new Settings();
-    settings1->ReadFile(setupfile);
-    IceModel *icemodel = new IceModel(settings1->ICE_MODEL + settings1->NOFZ*10,settings1->CONSTANTICETHICKNESS * 1000 + settings1->CONSTANTCRUST * 100 + settings1->FIXEDELEVATION * 10 + 0,settings1->MOOREBAY);// creates Antarctica ice model
-    Detector *detector = new Detector(settings1, icemodel, setupfile);
-    
-    //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
-    std::vector<int> excludedChannels;
-    for (int i=0; i<16; i++){
-        // cout << "detector->GetTrigMasking(i) = " << detector->GetTrigMasking(i) << endl;
-        if (not detector->GetTrigMasking(i)){
-            cout << "Excluding channel " << i << endl;
-            excludedChannels.push_back(i);
-        }
-    }  
-    
+    //Open first entry of event
     // Check if sim or real data file by checking for existence of AraTree
     TTree *simSettingsTree;
     simSettingsTree=(TTree*) fp->Get("AraTree");
@@ -140,34 +103,88 @@ int main(int argc, char **argv)
         std::cerr << "AraTree exists.  Importing as simulated data.\n";
         eventTree->SetBranchAddress("UsefulAtriStationEvent", &usefulAtriEvPtr);
     }
+    
+    eventTree->GetEntry(0);  
+
+
+    if (dataLike) {
+        // cout << "Triggering data-like condition." << endl;
+        delete usefulAtriEvPtr;  //Need to delete the initialized pointer in order to create a new one.
+        usefulAtriEvPtr = new UsefulAtriStationEvent(rawAtriEvPtr, AraCalType::kLatestCalib);
+    }
+
+
+    
+    
+    //Try importing paramters using the setup file
+    Settings *settings1 = new Settings();
+    // cout << "aaa" << endl;
+    settings1->ReadFile(setupfile);
+    // cout << "bbb" << endl;
+    
+    AraEventCalibrator *cal = AraEventCalibrator::Instance();
+    setPedestalFile(cal, settings1->DETECTOR_STATION, runNum);
+      
+    IceModel *icemodel = new IceModel(settings1->ICE_MODEL + settings1->NOFZ*10,settings1->CONSTANTICETHICKNESS * 1000 + settings1->CONSTANTCRUST * 100 + settings1->FIXEDELEVATION * 10 + 0,settings1->MOOREBAY);// creates Antarctica ice model
+    // cout << "ccc" << endl;
+    Detector *detector = new Detector(settings1, icemodel, setupfile);
+    // cout << "ddd" << endl;
+    
+    int runStartUnixTime = usefulAtriEvPtr->unixTime;
+    AraGeomTool *geomTool = AraGeomTool::Instance();   
+    geomTool->getStationInfo(settings1->DETECTOR_STATION, runStartUnixTime);      
+    geomTool->LoadSQLDbAtri(runStartUnixTime, usefulAtriEvPtr->stationId);    
+    
+    //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
+    std::vector<int> excludedChannels;
+    for (int i=0; i<16; i++){
+        // cout << "detector->GetTrigMasking(i) = " << detector->GetTrigMasking(i) << endl;
+        if (not detector->GetTrigMasking(i)){
+            cout << "Excluding channel " << i << endl;
+            excludedChannels.push_back(i);
+        }
+    }  
+    
+    // // Check if sim or real data file by checking for existence of AraTree
+    // TTree *simSettingsTree;
+    // simSettingsTree=(TTree*) fp->Get("AraTree");
+    // bool dataLike;
+    // Event *eventPtr = 0; // it is apparently incredibly important that this be initialized to zero...
+    // //data like
+    // if(!simSettingsTree) { 
+    //     dataLike = true;            
+    //     std::cerr << "Can't find AraTree.  Importing as real data.\n";
+    //     eventTree->SetBranchAddress("event",&rawAtriEvPtr);
+    // }
+    // // sim like
+    // else {
+    //     dataLike = false;
+    //     std::cerr << "AraTree exists.  Importing as simulated data.\n";
+    //     eventTree->SetBranchAddress("UsefulAtriStationEvent", &usefulAtriEvPtr);
+    // }
 
     printf("------------------\n");
     printf("Input files loaded. Begin looping events.\n");
     printf("------------------\n");
+    
+    //Get unixtime of first event in run
+    // int runStartUnixTime;// = eventTree->unixTime;
     
     for(Long64_t event=0;event<numEntries;event++) {
     // for(Long64_t event=0;event<500;event++) {    
         //Initialize counter for channels with double-peak
         int doublePeakCounter=0;
         
+        //Initialize other parameters
+        double the_snr_h;
+        double the_snr_v;
+        std::vector<double> snrs_h;
+        std::vector<double> snrs_v;
+        bool nonPhysical = false;
+        std::map<int, double> snrs;
+        
         fp->cd();
-        eventTree->GetEntry(event);
-        
-        // if (rawAtriEvPtr->eventNumber != 53535){  //Test for A4 Run 6128
-        //     continue;
-        // }
-        
-        // if (rawAtriEvPtr->eventNumber != 53625){  //Test for A4 Run 6128
-        //     continue;
-        // }        
-
-        // if (rawAtriEvPtr->eventNumber != 387){  //Test for A4 Run 6119
-        //     continue;
-        // }
-        
-        // if (rawAtriEvPtr->eventNumber != 679){  //Test for A2 Run 12559
-        //     continue;
-        // }        
+        eventTree->GetEntry(event);  
         
         
         if (dataLike) {
@@ -175,12 +192,15 @@ int main(int argc, char **argv)
             delete usefulAtriEvPtr;  //Need to delete the initialized pointer in order to create a new one.
             usefulAtriEvPtr = new UsefulAtriStationEvent(rawAtriEvPtr, AraCalType::kLatestCalib);
         }
+        // if (event == 0) {
+        //     runStartUnixTime = usefulAtriEvPtr->unixTime;
+        // }
         // cout << "*";
         if (event%1000 == 0) {
             std::cout<<"Event number: \t"<<event<<std::endl;        
         }
         if (event%100 == 0) {
-            std::cout<<"*"<<endl;;        
+            std::cout<<"*"<<endl;        
         }        
         
         std::map<int, TGraph*> interpolatedWaveforms;
@@ -192,8 +212,15 @@ int main(int argc, char **argv)
             int primaryChannel;  //Initializing variable to count primary channel used in the peak finding.
             TGraph *grV = usefulAtriEvPtr->getGraphFromRFChan(i);
             TGraph *grH = usefulAtriEvPtr->getGraphFromRFChan(i+8);
-            TGraph *grIntV = FFTtools::getInterpolatedGraph(grV, 0.5);  //Real data interpolation
-            TGraph *grIntH = FFTtools::getInterpolatedGraph(grH, 0.5);  //Real data interpolation
+            if (grV->GetN() == 0 or grH->GetN() == 0) {
+                cout << "Waveform empty.  Bypassing event." << endl;
+                goto bypassEvent;
+            }
+            TGraph *grIntV = FFTtools::getInterpolatedGraph(grV, dt);  //Real data interpolation
+            TGraph *grIntH = FFTtools::getInterpolatedGraph(grH, dt);  //Real data interpolation
+            
+            grIntV = butterworthFilter(grIntV, freqMin, freqMax);
+            grIntH = butterworthFilter(grIntH, freqMin, freqMax);
             
 
  
@@ -271,7 +298,8 @@ int main(int argc, char **argv)
             
         }
     
-        std::map<int, double> snrs; // map of channels to SNRs
+        // std::map<int, double> snrs; // map of channels to SNRs
+        // bool nonPhysical = false;
         for(int i=0; i<16; i++){
             
             double peak_max = TMath::MaxElement(interpolatedWaveforms[i]->GetN(), interpolatedWaveforms[i]->GetY());
@@ -282,16 +310,24 @@ int main(int argc, char **argv)
             else{
                 snrs[i] = peak_max/noiseRms[i];
             }
+            if (peak_max > 5000 or peak_min < -5000) {
+                nonPhysical = true; //Sets condition for high amplitude events that are non-physical.
+            }
         }
-        std::vector<double> snrs_v;
-        std::vector<double> snrs_h;
+        // std::vector<double> snrs_v;
+        // std::vector<double> snrs_h;
         for(int i=0; i<8; i++) snrs_v.push_back(snrs[i]);
         for(int i=8; i<16; i++) snrs_h.push_back(snrs[i]);
         //Grabs median-ish snr (third largest of eight) and stores as the VSNR and HSNR. 
         sort(snrs_v.begin(), snrs_v.end(), greater<double>()); // sort largest to smallest
         sort(snrs_h.begin(), snrs_h.end(), greater<double>()); // sort largest to smallest
-        double the_snr_v = snrs_v[2];
-        double the_snr_h = snrs_h[2];
+        the_snr_v = snrs_v[2];
+        the_snr_h = snrs_h[2];
+        
+        if (usefulAtriEvPtr->unixTime < (runStartUnixTime+minTimeAfterStart)) {
+            // cout << "Event in first block of run.  Bypassing event." << endl;
+            continue;
+        }
         
         //Adding condition where if the SNR is less than 8, we bypass the event.          
         if (usefulAtriEvPtr->isCalpulserEvent()) {
@@ -302,7 +338,7 @@ int main(int argc, char **argv)
             // cout << "Event is Software Trigger.  Bypassing event." << endl;
             continue;
         }   
-        if (the_snr_v < 8 and the_snr_h < 8) {
+        if (the_snr_v < minSnr and the_snr_h < minSnr) {
             // cout << "Event below SNR threshold.  Bypassing event." << endl;
             // outTree->Fill();
             continue;
@@ -313,6 +349,10 @@ int main(int argc, char **argv)
             // outTree->Fill();
             continue;            
         }  
+        if (nonPhysical) {
+            cout << "Event has non-physical amplitude. Bypassing event." << endl;    
+            continue;
+        }
         
         usefulAtriEvPtrOut=usefulAtriEvPtr;
         
@@ -323,6 +363,8 @@ int main(int argc, char **argv)
         // delete usefulAtriEvPtrOut;
         // delete usefulAtriEvPtr;
         // delete interpolatedWaveforms;
+        
+        bypassEvent:;
     
     }
 
@@ -332,7 +374,7 @@ int main(int argc, char **argv)
     delete fpOut;
 
     cout << "*************************************************************************" << endl;
-    cout << passedEventCounter << " of " << numEntries << " passed." << endl;
+    cout << "A" << settings1->DETECTOR_STATION << " Run " << runNum << ": " << passedEventCounter << " of " << numEntries << " passed." << endl;
     cout << "Output written to:\t " <<outfile_name<<endl;
     cout << "*************************************************************************" << endl;
     

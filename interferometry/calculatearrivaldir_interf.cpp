@@ -28,13 +28,27 @@ UsefulAtriStationEvent *usefulAtriEvPtr;
 // #include "helper.h"
 #include "tools.h"
 
+
+bool noCutoff = false;
 bool debugMode = false;
 bool useMcTruth = false;
 bool fineRadii = true;
+bool useConsoleRadius = false;
+bool usePulserCalculation = false;
+bool applyBandpass = false;
+int minRadius;
+int maxRadius;
+int deltaR;
 int debugEvent=0;
-double snrThreshold=5;
+double snrThreshold=4;
+// double angleResolution=1;
+double angular_size = 1.;
 double peakSeparation=50.0;  //Minimum separation between peaks.  Closest seperation is expected to be ~100 ns.
+// char* pedestalLocation = "/fs/project/PAS0654/ARA_DATA/pedestalFiles/";
 // double peakSeparation=100.0;  //Minimum separation between peaks.  Closest seperation is expected to be ~100 ns. Testing 80ns as that's the approximate width of a pulse
+double minFreq = 200;
+double maxFreq = 300;
+int order=8;
 
 
 void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi, double &peakCorr) {
@@ -50,7 +64,7 @@ void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi,
     peakPhi = maxPhi;
     peakTheta = maxTheta;
 }
-
+ 
 
 
 //TODO: make radii and numScanned a little more dynamic so that it doesn't have to be hardcoded.  Maybe had it scan the rt_tables folder to have ti compile a list of radii that match the station, then defining the radii array using those values?  numScanned would simply just be the length of radii[]. Should also have it scan AFTER the station number is declared.  4/6/2024
@@ -102,15 +116,46 @@ int main(int argc, char **argv)
         std::cout << "e.g.\n" << argv[0] << " 2 http://www.hep.ucl.ac.uk/uhen/ara/monitor/root/run1841/event1841.root setup.txt\n";
         return 0;
     }
+    // if (argc>6){
+    //     std::string action(argv[6]);
+    //     if(action == "debug") {
+    //         debugMode = true;
+    //     }
+    // }
+    // if (argc>7){
+    //     debugEvent = atoi(argv[7]);
+    // }
     if (argc>6){
-        std::string action(argv[6]);
-        if(action == "debug") {
-            debugMode = true;
+        int i = 6;
+        while(argv[i] != NULL) {
+            std::string action(argv[i]);
+            if (action == "debug") {
+                debugMode = true;
+                std::string event(argv[i+1]);
+                if (atoi(argv[i+1])) {
+                    debugEvent = atoi(argv[i+1]);
+                }
+            }
+            if (action == "radius") {
+                useConsoleRadius = true;
+                minRadius = atoi(argv[i+1]);
+                maxRadius = atoi(argv[i+2]);
+                deltaR = atoi(argv[i+3]);
+            }
+            if (action == "usePulserCalculation") {
+                usePulserCalculation = true;
+            }  
+            if (action == "applyBandpass") {
+                applyBandpass = true;
+            }    
+            
+            if (action == "noCutoff") {
+                cout << "Bypassing cropping of R pulse." << endl;
+                noCutoff = true;
+            }                
+            i++;
         }
-    }
-    if (argc>7){
-        debugEvent = atoi(argv[7]);
-    }        
+    }    
 
     int station = atoi(argv[1]);  //This will be made redundant when we include the setupfile. 4/6/2024
     char* runNum = argv[2];
@@ -128,49 +173,63 @@ int main(int argc, char **argv)
     
     //Define radii for vertex Reco based on station being used.
     std::vector<double> radii;
-    if (not fineRadii) {
-        for (int r=0; r<numScannedOld; r++) {
-            radii.push_back(radiiOld[r]);
-        }
-    }      
-    else if (station == 1 or station==100) {
-        for (int r=800; r<1200; r+=10) {
+    if (useConsoleRadius) {
+        for (int r=minRadius; r<maxRadius; r+=deltaR) {
             radii.push_back(r);
+        }        
+    }
+    else {
+        if (not fineRadii) {
+            for (int r=0; r<numScannedOld; r++) {
+                radii.push_back(radiiOld[r]);
+            }
+        }      
+        else if (station == 1 or station==100) {
+            for (int r=800; r<1200; r+=10) {
+                radii.push_back(r);
+            }
+        }        
+        // else if (station == 1 or station==100) {
+        //     for (int r=1250; r<2100; r+=10) {
+        //         radii.push_back(r);
+        //     }
+        // }    
+        // else if (station == 2) {
+        //     for (int r=2390; r<2930; r+=10) {
+        //         radii.push_back(r);
+        //     }
+        // }
+        else if (station == 2) {
+            for (int r=100; r<4000; r+=100) {
+                radii.push_back(r);
+            }
+        }    
+        else if (station == 3) {
+            for (int r=3150; r<3590; r+=10) {
+                radii.push_back(r);
+            }
+        }    
+        else if (station == 4) {
+            for (int r=3170; r<3600; r+=10) {
+                radii.push_back(r);
+            }
+        }  
+        else if (station == 5) {
+            for (int r=4130; r<4730; r+=10) {
+                radii.push_back(r);
+            }
         }
-    }        
-    // else if (station == 1 or station==100) {
-    //     for (int r=1250; r<2100; r+=10) {
-    //         radii.push_back(r);
-    //     }
-    // }    
-    // else if (station == 2) {
-    //     for (int r=2390; r<2930; r+=10) {
-    //         radii.push_back(r);
-    //     }
-    // }
-    else if (station == 2) {
-        for (int r=100; r<4000; r+=100) {
-            radii.push_back(r);
-        }
-    }    
-    else if (station == 3) {
-        for (int r=3150; r<3590; r+=10) {
-            radii.push_back(r);
-        }
-    }    
-    else if (station == 4) {
-        for (int r=3170; r<3600; r+=10) {
-            radii.push_back(r);
-        }
-    }  
-    else if (station == 5) {
-        for (int r=4130; r<4730; r+=10) {
-            radii.push_back(r);
-        }
-    }      
+        
+    }
 
     
-    const int numScanned = radii.size();
+    int numScanned = radii.size();
+    
+    if (usePulserCalculation) {
+        numScanned = 1;
+    }
+    
+    cout << "numScanned = " << numScanned << endl;
 
     double peakCorrs_out[numScanned];
     double peakThetas_out[numScanned];
@@ -271,13 +330,37 @@ int main(int argc, char **argv)
     cout << "eventTree has " << numEntries << " entries." << endl;
     RawAtriStationEvent *rawAtriEvPtr=0;
     
+    //Grabbing first event to get unixTime and detector info
+    // eventTree->SetBranchAddress("UsefulAtriStationEvent", &usefulAtriEvPtr);
+    // eventTree->GetEntry(0);
+    
+    
+    
+
+    
     //Try importing paramters using the setup file
     Settings *settings1 = new Settings();
     settings1->ReadFile(setupfile); 
+    cout << "aaa" << endl;
+    AraGeomTool *geomTool = AraGeomTool::Instance();
+    cout << "bbb" << endl;
+    geomTool->getStationInfo(settings1->DETECTOR_STATION, 2018); 
+    cout << "ccc" << endl;
+    
+    //Set pedestal file
+    AraEventCalibrator *cal = AraEventCalibrator::Instance();
+    cout << "ddd" << endl;
+    setPedestalFile(cal, settings1->DETECTOR_STATION, runNum);
+    cout << "eee" << endl;
+    
     IceModel *icemodel=new IceModel(settings1->ICE_MODEL + settings1->NOFZ*10,settings1->CONSTANTICETHICKNESS * 1000 + settings1->CONSTANTCRUST * 100 + settings1->FIXEDELEVATION * 10 + 0,settings1->MOOREBAY);// creates Antarctica ice model
-    Detector *detector = new Detector(settings1, icemodel, setupfile);  
+    cout << "jjj" << endl;
+    Detector *detector = new Detector(settings1, icemodel, setupfile);   //This throws the usefulEvent error
+    cout << "kkk" << endl;
     Report *report = new Report(detector, settings1);
+    cout << "lll" << endl;
     RaySolver *raySolver = new RaySolver;
+    cout << "fff" << endl;
     //End attempt at importing setup parameters
     
     double dt = settings1->TIMESTEP*1e9;
@@ -285,13 +368,13 @@ int main(int argc, char **argv)
 
     
     // set up correlator and pairs
-    RayTraceCorrelator *theCorrelators[numScanned];
-    for(int r=0; r<numScanned; r++){
+    RayTraceCorrelator *theCorrelators[radii.size()];
+    for(int r=0; r<radii.size(); r++){
         
         // setup the paths to our ray tracing tables
         double radius = radii[r];
         printf("Loading Radius %.2f\n",radius);
-        double angular_size = 1.;
+        // double angular_size = 1.;
         int iceModel = settings1->RAY_TRACE_ICE_MODEL_PARAMS; 
         char dirPath[500];
         char refPath[500];
@@ -303,12 +386,13 @@ int main(int argc, char **argv)
             topDir.c_str(), station, iceModel, radius, angular_size
         );
 
-        int numAntennas = 16; //While this should be fine for all stations, it should be dynamic to the settings file as well. 4/6/2024
+        // int numAntennas = 16; //While this should be fine for all stations, it should be dynamic to the settings file as well. 4/6/2024
+        int numAntennas = 20; //While this should be fine for all stations, it should be dynamic to the settings file as well. 4/6/2024
         theCorrelators[r] = new RayTraceCorrelator(station, numAntennas, radius, angular_size, dirPath, refPath);
         theCorrelators[r]->LoadTables();        
     }
     
-    AraGeomTool *geomTool = AraGeomTool::Instance();
+    geomTool->getStationInfo(settings1->DETECTOR_STATION, 2018);
 
     printf("------------------\n");
     printf("Correlator Setup Complete. Begin looping events.\n");
@@ -318,8 +402,10 @@ int main(int argc, char **argv)
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
     std::vector<int> excludedChannels;
     getExcludedChannels(excludedChannels, settings1, detector);
-    std::map< int, std::vector<int> > pairs_V = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kVertical, excludedChannels);
-    std::map< int, std::vector<int> > pairs_H = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kHorizontal, excludedChannels);    
+    cout << "ggg" << endl;
+    std::map< int, std::vector<int> > pairs_V = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kVertical, excludedChannels, settings1->DETECTOR_YEAR);  //This throws the usefulEvent error
+    std::map< int, std::vector<int> > pairs_H = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kHorizontal, excludedChannels, settings1->DETECTOR_YEAR);    
+    cout << "hhh" << endl;
     
     // Check if sim or real data file by checking for existence of AraTree
     TTree *simSettingsTree;
@@ -330,6 +416,8 @@ int main(int argc, char **argv)
     Event *eventPtr = 0; // it is apparently incredibly important that this be initialized to zero...
     Report *reportPtr = 0; 
     std::vector<double> average_position;    
+    
+    geomTool->getStationInfo(settings1->DETECTOR_STATION, 2018);
     
     //Trying condition where it checks for usefulAtriStation branch and imports according to that.
     if(!simSettingsTree) { 
@@ -371,6 +459,17 @@ int main(int argc, char **argv)
         simTree->SetBranchAddress("event", &eventPtr);
         simTree->SetBranchAddress("report", &reportPtr);
     }
+    
+    // eventTree->GetEntry(0);
+    // cout << "Triggering uncalibrated data-like condition." << endl;
+    // delete usefulAtriEvPtr;  //Need to delete the initialized pointer in order to create a new one.
+    // usefulAtriEvPtr = new UsefulAtriStationEvent(rawAtriEvPtr, AraCalType::kLatestCalib);   
+    
+    
+    // cout << "Calling ara station info one more time!" << endl;
+    // geomTool->getStationInfo(settings1->DETECTOR_STATION, 2018);
+    // geomTool->LoadSQLDbAtri(usefulAtriEvPtr->unixTime, settings1->DETECTOR_STATION_ARAROOT);
+    
     //End new import method
 
     
@@ -392,7 +491,19 @@ int main(int argc, char **argv)
     
     for(Long64_t event=loopStart;event<loopEnd;event++) {  
         fp->cd();
-        eventTree->GetEntry(event);        
+        cout << "aaa" << endl;
+        eventTree->GetEntry(event);  
+        // geomTool->getStationInfo(settings1->DETECTOR_STATION, 2018);  
+        // AraGeomTool *geomTool = AraGeomTool::Instance();
+        // geomTool->getStationInfo(usefulAtriEvPtr->stationId, usefulAtriEvPtr->unixTime);  
+        // geomTool->LoadSQLDbAtri(usefulAtriEvPtr->unixTime, usefulAtriEvPtr->stationId);      
+        double pulserDepth;
+        double vertexTheta;
+        double vertexPhi;
+        double vertexRadius;
+        double nearestTheta;
+        double nearestPhi;
+        double nearestRadius;
         
         if (not calibrated) {
             cout << "Triggering uncalibrated data-like condition." << endl;
@@ -403,7 +514,47 @@ int main(int argc, char **argv)
             cout << "Triggering sim-like condition." << endl;
             simTree->GetEntry(event);
         }
+        
+        AraGeomTool *geomTool = AraGeomTool::Instance();
+        geomTool->getStationInfo(usefulAtriEvPtr->stationId, usefulAtriEvPtr->unixTime);  
+        geomTool->LoadSQLDbAtri(usefulAtriEvPtr->unixTime, usefulAtriEvPtr->stationId);          
+
         Position diff_true;
+        cout << "Calling ara station info!" << endl;
+        
+        try {
+            pulserDepth = getPulserDepth(usefulAtriEvPtr->unixTime);
+            cout << "Pulser depth at " << pulserDepth << endl;
+        }
+        catch(std::out_of_range) {
+            cout << "Pulser depth at " << runNum << endl;
+        }
+        // cout << "Pulser depth at " << getPulserDepth(0) << endl;
+        getPulserVertex(detector, settings1, geomTool, pulserDepth, vertexTheta, vertexPhi, vertexRadius, debugMode);
+        //Convert vertexTheta and Phi into degrees and same coordiante system as maps
+        vertexTheta*=180/PI;
+        vertexTheta= -1*vertexTheta + 90;
+        vertexPhi*=180/PI;
+        if (vertexPhi > 180) {
+            vertexPhi-=360;
+        }
+        cout << "Calculate pulser position at (R, theta[deg], phi[deg]) = (" << vertexRadius << ", " << vertexTheta << ", " << vertexPhi << ")" << endl;   
+        
+        getNearestVertexBin(vertexRadius, vertexTheta, vertexPhi, angular_size, deltaR, nearestRadius, nearestTheta, nearestPhi);
+        cout << "Nearest vertex at (R, theta[deg], phi[deg]) = (" << nearestRadius << ", " << nearestTheta << ", " << nearestPhi << ")" << endl;           
+        
+        if (dataLike) {
+        // AraGeomTool *geomTool = AraGeomTool::Instance();
+            geomTool->getStationInfo(usefulAtriEvPtr->stationId, usefulAtriEvPtr->unixTime);  
+            geomTool->LoadSQLDbAtri(usefulAtriEvPtr->unixTime, usefulAtriEvPtr->stationId);           
+            // AraGeomTool *geomTool = AraGeomTool::Instance();
+            // geomTool->getStationInfo(settings1->DETECTOR_STATION, 2018);  
+            // cout << "usefulAtriEvPtr->unixTime = " << usefulAtriEvPtr->unixTime << endl;
+            // cout << "usefulAtriEvPtr->stationId = " << usefulAtriEvPtr->stationId << endl;
+            // cout << "rawAtriEvPtr->stationId = " << rawAtriEvPtr->stationId << endl;
+            // geomTool->LoadSQLDbAtri(usefulAtriEvPtr->unixTime, '\x01');
+            cout << "SQL DB Loaded!" << endl;
+        }
         
         //Set event number for output
         if (dataLike) {
@@ -449,13 +600,35 @@ int main(int argc, char **argv)
             delete c;
         }
         
+        if (debugMode) {
+            for (int i=0; i<16; i++){
+            cout << "RFChan = " << i << " | ElecChan = " << geomTool->getElecChanFromRFChan(i,usefulAtriEvPtr->stationId) << endl;
+            }
+        }        
+        
         //TODO: Implement independent loop for double peak finder that checks parter VPol and HPol channels to find the cutoff times.
         for (int i=0; i<8; i++){
+            bool checkExcludedVPol = std::find(excludedChannels.begin(), excludedChannels.end(), i) != excludedChannels.end();
+            bool checkExcludedHPol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();            
             
             TGraph *grV = usefulAtriEvPtr->getGraphFromRFChan(i);
             TGraph *grH = usefulAtriEvPtr->getGraphFromRFChan(i+8);
+            // if (debugMode) {
+            //     cout << "VPol RFChan = " << i << " | ElecChan = " << geomTool->getElecChanFromRFChan(i,usefulAtriEvPtr->stationId) << endl;
+            //     cout << "HPol RFChan = " << i+8 << " | ElecChan = " << geomTool->getElecChanFromRFChan(i+8,usefulAtriEvPtr->stationId) << endl;
+            // }
             TGraph *grIntV = FFTtools::getInterpolatedGraph(grV, dt);  //Real data interpolation
             TGraph *grIntH = FFTtools::getInterpolatedGraph(grH, dt);  //Real data interpolation
+            // TGraph *grIntVBeforeBandpass = FFTtools::getInterpolatedGraph(grV, dt);  //Real data interpolation
+            // TGraph *grIntHBeforeBandpass = FFTtools::getInterpolatedGraph(grH, dt);  //Real data interpolation            
+            
+            //Apply bandpass filter to eliminate out of band noise
+            if (applyBandpass) {
+                grIntV = butterworthFilter(grIntV, minFreq, maxFreq, order);
+                grIntH = butterworthFilter(grIntH, minFreq, maxFreq, order);
+                snrThreshold = 10;
+            }
+            
 
             vector<double> vvHitTimes; // vector of hit times
             vector<double> vvPeakIntPowers; // vector of peak values   
@@ -508,7 +681,8 @@ int main(int argc, char **argv)
                 cout <<"primaryPeakIntPowers[0] = " << primaryPeakIntPowers[0] << endl;
                 cout <<"primaryPeakIntPowers[1] = " << primaryPeakIntPowers[1] << endl;
             }
-            if (primaryPeakIntPowers[1] > peakThreshold and primaryPeakIntPowers[1] > 0.5*primaryPeakIntPowers[0]) {
+            // if (primaryPeakIntPowers[1] > peakThreshold and primaryPeakIntPowers[1] > 0.25*primaryPeakIntPowers[0] and not usefulAtriEvPtr->isCalpulserEvent() and not noCutoff) {
+            if (primaryPeakIntPowers[1] > peakThreshold and not usefulAtriEvPtr->isCalpulserEvent() and not noCutoff) {            
                 // cout << "Assuming double-peak signal." << endl;
                 if(primaryHitTimes[1]>primaryHitTimes[0]) {
                     firstPeak = primaryHitTimes[0];
@@ -532,7 +706,7 @@ int main(int argc, char **argv)
                 refPeakTimes[i+8] = secondPeak;                   
             }
             else {
-                // cout << "Assuming single-peak signal." << endl;                
+                cout << "Assuming single-peak signal." << endl;                
                 cutoffTime[i] = grIntV->GetX()[grIntV->GetN() - 1];
                 cutoffTime[i+8] = grIntH->GetX()[grIntH->GetN() - 1];
                 
@@ -544,10 +718,13 @@ int main(int argc, char **argv)
             if (debugMode){
                 //Draw Vpol
                 c->cd(i+1); gPad->SetGrid(1,1);
-                grV->Draw();
+                grIntV->Draw();
+                if (checkExcludedVPol) {
+                    grV->SetLineColor(2);
+                }                
                 char vTitle[500];
-                sprintf(vTitle,"A%d Run %s Event %d Ch. %.2d", station, runNum, eventNumber, i);
-                grV->SetTitle(vTitle);
+                sprintf(vTitle,"A%d Run %s Event %d Ch. %.2d %.2f", station, runNum, eventNumber, i, pulserDepth);
+                grIntV->SetTitle(vTitle);
                 TLine *l1v = new TLine(vvHitTimes[0], -1500, vvHitTimes[0], 1500);
                 l1v->SetLineColorAlpha(kBlue, 1);
                 l1v->Draw();    
@@ -570,10 +747,14 @@ int main(int argc, char **argv)
 
                 //Draw Hpol
                 c->cd(i+1+8); gPad->SetGrid(1,1);
-                grH->Draw();
+                grIntH->Draw();
+                if (checkExcludedHPol) {
+                    grIntH->SetLineColor(2);
+                }                 
                 char hTitle[500];
-                sprintf(hTitle,"A%d Run %s Event %d Ch. %.2d", station, runNum, eventNumber, i+8);
-                grH->SetTitle(hTitle);
+                sprintf(hTitle,"A%d Run %s Event %d Ch. %.2d %.2f", station, runNum, eventNumber, i+8, pulserDepth);
+                // sprintf(hTitle,"A%d Run %s Event %d Ch. %.2d", station, runNum, eventNumber, i+8);
+                grIntH->SetTitle(hTitle);
                 TLine *l1h = new TLine(hhHitTimes[0], -1500, hhHitTimes[0], 1500);
                 l1h->SetLineColorAlpha(kBlue, 1);
                 l1h->Draw();    
@@ -606,7 +787,9 @@ int main(int argc, char **argv)
                 cout << "cutoffTime at " << cutoffTime[i] << endl; 
             }
             //Crop waveform to first peak
-            grIntV = FFTtools::cropWave(grIntV, grIntV->GetX()[0], cutoffTime[i]);
+            if (cutoffTime[i] > grIntV->GetX()[0]) {
+                grIntV = FFTtools::cropWave(grIntV, grIntV->GetX()[0], cutoffTime[i]);
+            }
             if (debugMode){
                 cout << "cropped waveform length = " << grIntV->GetN() << endl;            
             }
@@ -630,7 +813,9 @@ int main(int argc, char **argv)
                 cout << "cutoffTime at " << cutoffTime[i+8] << endl;  
             }
             //Crop waveform to first peak
-            grIntH = FFTtools::cropWave(grIntH, grIntH->GetX()[0], cutoffTime[i+8]);
+            if (cutoffTime[i+8] > grIntH->GetX()[0]) {
+                grIntH = FFTtools::cropWave(grIntH, grIntH->GetX()[0], cutoffTime[i+8]);
+            }
             if (debugMode){
                 cout << "cropped waveform length = " << grIntH->GetN() << endl;    
             }
@@ -726,14 +911,38 @@ int main(int argc, char **argv)
         std::vector<int> peakPol;
         std::vector<int> peakSol;
 
-        for(int r=0; r<numScanned; r++){
+        for(int r=0; r<radii.size(); r++){
+            // if (usePulserCalculation) {
+            //     if (radii[r] != nearestRadius) {
+            //         continue;
+            //     }
+            // }
+            // std::vector<TH2D*> maps;
+            double peakCorr, peakTheta, peakPhi;
+            if (usePulserCalculation) {
+                if (radii[r] != nearestRadius) {
+//                     int element=0;
+//                     peakCorrs.push_back(peakCorr);
+
+//                     peakThetas.push_back(peakTheta); 
+//                     peakPhis.push_back(peakPhi);
+
+//                     if(element < 2){ peakPol.push_back(0); }
+//                     else{peakPol.push_back(1);}
+
+//                     if(element==0 || element ==2){ peakSol.push_back(0);}
+//                     else if(element==1 || element ==3 ){ peakSol.push_back(1);}
+                    continue;
+                }
+            }
+            
+                
             std::vector<TH2D*> maps;
 
             maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_V, corrFunctions_V, 0, weights_V)); // direct solution)
             maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_V, corrFunctions_V, 1, weights_V)); // reflected solution
             maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, 0, weights_H)); // direct solution
-            maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, 1, weights_H)); // reflected solution
-            
+            maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, 1, weights_H)); // reflected solution           
 
             std::vector<double> bestOne;
             for(int i=0; i<4; i++){
@@ -746,16 +955,16 @@ int main(int argc, char **argv)
             auto it = max_element(std::begin(bestOne), std::end(bestOne));
             int element = distance(bestOne.begin(), it);
             // printf("    Best Option is %d with corr %e \n",element, *it);
-            double peakCorr, peakTheta, peakPhi;
+            // double peakCorr, peakTheta, peakPhi;
             getCorrMapPeak(maps[element], peakTheta, peakPhi, peakCorr);
             peakCorrs.push_back(peakCorr);
 
             peakThetas.push_back(peakTheta); 
             peakPhis.push_back(peakPhi);
-            
+
             if(element < 2){ peakPol.push_back(0); }
             else{peakPol.push_back(1);}
-            
+
             if(element==0 || element ==2){ peakSol.push_back(0);}
             else if(element==1 || element ==3 ){ peakSol.push_back(1);}
             //Forcing direct solution in the reconstruction
@@ -767,10 +976,19 @@ int main(int argc, char **argv)
                 delete maps[i];
             }
         }
+        // auto it;
+        // auto it = max_element(std::begin(peakCorrs), std::end(peakCorrs));
+        int element;
+        if (usePulserCalculation) {
+            auto it = std::find(radii.begin(), radii.end(), nearestRadius);
+            // element = distance(radii.begin(), it);
+            element = 0;
+        }
+        else {
+            auto it = max_element(std::begin(peakCorrs), std::end(peakCorrs));
+            element = distance(peakCorrs.begin(), it);
+        }
         
-        auto it = max_element(std::begin(peakCorrs), std::end(peakCorrs));
-        int element = distance(peakCorrs.begin(), it);
-
         // stash the output
         fpOut->cd();
         // reconstructed quantities first
@@ -779,13 +997,21 @@ int main(int argc, char **argv)
             peakThetas_out[r] = peakThetas[r];
             peakPhis_out[r] = peakPhis[r];
             peakPol_out[r] = peakPol[r];
-            peakSol_out[r] = peakSol_out[r];
+            peakSol_out[r] = peakSol[r];
         }
-        bestTheta_out = peakThetas[element];
-        bestPhi_out = peakPhis[element];
+        if (usePulserCalculation) {
+            bestTheta_out = nearestTheta;
+            bestPhi_out = nearestPhi;
+            bestR_out = nearestRadius; 
+            peakSol_out[element] = 0;
+        }
+        else {
+            bestTheta_out = peakThetas[element];
+            bestPhi_out = peakPhis[element];
+            bestR_out = radii[element];
+        }
         bestCorr_out = peakCorrs[element];
-        bestR_out = radii[element];
-        bestSol_out = peakSol[element];
+        bestSol_out = peakSol_out[element];
         
         
         //Recreate map of best solution and plot it.
@@ -818,11 +1044,19 @@ int main(int argc, char **argv)
                 maps[0]->GetXaxis()->CenterTitle();
                 maps[0]->GetYaxis()->CenterTitle();
                 gPad->SetRightMargin(0.15);
+                // Plot calculated pulser location
+                TLine *ltheta = new TLine(-180, vertexTheta, 180, vertexTheta);
+                ltheta->SetLineColorAlpha(kBlack, 1);
+                // ltheta->Draw();  
+                TLine *lphi = new TLine(vertexPhi, -90, vertexPhi, 90);
+                lphi->SetLineColorAlpha(kBlack, 1);
+                // lphi->Draw();            
                 char title[500];
-                sprintf(title,"%s/bestDsolutionMap.png", outputDir);
+                sprintf(title,"%s/bestVpolDsolutionMap.png", outputDir);
                 char plotTitle[500];
                 // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
-                sprintf(plotTitle,"A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
+                // sprintf(plotTitle,"VPol D A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
+                sprintf(plotTitle,"Sample Simulated Neutrino - Station A%d Radius %f", station, bestR_out);            
                 maps[0]->SetTitle(plotTitle);
                 c->SaveAs(title);
                 delete c;
@@ -847,16 +1081,98 @@ int main(int argc, char **argv)
                 maps[1]->GetXaxis()->CenterTitle();
                 maps[1]->GetYaxis()->CenterTitle();
                 gPad->SetRightMargin(0.15);
+                // Plot calculated pulser location
+                TLine *ltheta = new TLine(-180, vertexTheta, 180, vertexTheta);
+                ltheta->SetLineColorAlpha(kBlack, 1);
+                // ltheta->Draw();  
+                TLine *lphi = new TLine(vertexPhi, -90, vertexPhi, 90);
+                lphi->SetLineColorAlpha(kBlack, 1);
+                // lphi->Draw();             
                 char title[500];
-                sprintf(title,"%s/bestRsolutionMap.png", outputDir);
+                sprintf(title,"%s/bestVpolRsolutionMap.png", outputDir);
                 char plotTitle[500];
                 // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
-                sprintf(plotTitle,"A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
+                sprintf(plotTitle,"VPol R A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
                 maps[1]->SetTitle(plotTitle);
                 c->SaveAs(title);
                 delete c;
                 // End debugging
         }
+        
+        if (debugMode){
+        
+                // Debugging - JCF 6/7/2023
+                TCanvas *c = new TCanvas("","", 1200, 950);            
+                maps[2]->Draw("colz");
+                // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
+                // maps[0]->GetYaxis()->SetTitle("Theta [deg]");
+                maps[2]->GetXaxis()->SetTitle("Azimuth [degrees]");
+                maps[2]->GetYaxis()->SetTitle("Zenith [degrees]");                
+                maps[2]->GetYaxis()->SetTitleSize(0.05);
+                maps[2]->GetYaxis()->SetLabelSize(0.03);
+                // maps[0]->GetYaxis()->SetTitleOffset(0.6);
+                maps[2]->GetYaxis()->SetTitleOffset(0.8);
+                maps[2]->GetXaxis()->SetTitleSize(0.05);
+                maps[2]->GetXaxis()->SetLabelSize(0.03);
+                // maps[0]->GetXaxis()->SetTitleOffset(0.6);
+                maps[2]->GetXaxis()->SetTitleOffset(0.8);
+                gStyle->SetOptStat(0);
+                maps[2]->GetXaxis()->CenterTitle();
+                maps[2]->GetYaxis()->CenterTitle();
+                gPad->SetRightMargin(0.15);
+                // Plot calculated pulser location
+                TLine *ltheta = new TLine(-180, vertexTheta, 180, vertexTheta);
+                ltheta->SetLineColorAlpha(kBlack, 1);
+                ltheta->Draw();  
+                TLine *lphi = new TLine(vertexPhi, -90, vertexPhi, 90);
+                lphi->SetLineColorAlpha(kBlack, 1);
+                lphi->Draw();             
+                char title[500];
+                sprintf(title,"%s/bestHpolDsolutionMap.png", outputDir);
+                char plotTitle[500];
+                // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
+                sprintf(plotTitle,"HPol D A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
+                maps[2]->SetTitle(plotTitle);
+                c->SaveAs(title);
+                delete c;
+        }
+        if (debugMode){
+
+                TCanvas *c = new TCanvas("","", 1200, 950);            
+                maps[3]->Draw("colz");
+                // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
+                // maps[0]->GetYaxis()->SetTitle("Theta [deg]");
+                maps[3]->GetXaxis()->SetTitle("Azimuth [degrees]");
+                maps[3]->GetYaxis()->SetTitle("Zenith [degrees]");                
+                maps[3]->GetYaxis()->SetTitleSize(0.05);
+                maps[3]->GetYaxis()->SetLabelSize(0.03);
+                // maps[0]->GetYaxis()->SetTitleOffset(0.6);
+                maps[3]->GetYaxis()->SetTitleOffset(0.8);
+                maps[3]->GetXaxis()->SetTitleSize(0.05);
+                maps[3]->GetXaxis()->SetLabelSize(0.03);
+                // maps[0]->GetXaxis()->SetTitleOffset(0.6);
+                maps[3]->GetXaxis()->SetTitleOffset(0.8);
+                gStyle->SetOptStat(0);
+                maps[3]->GetXaxis()->CenterTitle();
+                maps[3]->GetYaxis()->CenterTitle();
+                gPad->SetRightMargin(0.15);
+                // Plot calculated pulser location
+                TLine *ltheta = new TLine(-180, vertexTheta, 180, vertexTheta);
+                ltheta->SetLineColorAlpha(kBlack, 1);
+                ltheta->Draw();  
+                TLine *lphi = new TLine(vertexPhi, -90, vertexPhi, 90);
+                lphi->SetLineColorAlpha(kBlack, 1);
+                lphi->Draw();             
+                char title[500];
+                sprintf(title,"%s/bestHpolRsolutionMap.png", outputDir);
+                char plotTitle[500];
+                // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
+                sprintf(plotTitle,"HPol R A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
+                maps[3]->SetTitle(plotTitle);
+                c->SaveAs(title);
+                delete c;
+                // End debugging
+        }        
         for(int i=0; i<4; i++){
             delete maps[i];
         }     
@@ -898,17 +1214,31 @@ int main(int argc, char **argv)
 
         
         for(int i=0; i<16; i++){
+            if (debugMode) {
+                cout << "*******************************" << endl;
+                cout << "i = " << i << endl;
+                cout << "bestTheta_out = " <<  bestTheta_out << endl;
+                cout << "bestPhi_out = " <<  bestPhi_out << endl;
+            }
 
             int this_binTheta, this_binPhi;
             if (useMcTruth) {
                 theCorrelators[element]->ConvertAngleToBins(trueTheta_out, truePhi_out, 
                     this_binTheta, this_binPhi);
             }
+            // if (usePulserCalculation) {
+            //     theCorrelators[element]->ConvertAngleToBins(nearestTheta, nearestPhi, 
+            //         this_binTheta, this_binPhi);
+            // }
             else {
-                theCorrelators[element]->ConvertAngleToBins(peakThetas[element], peakPhis[element], 
+                theCorrelators[element]->ConvertAngleToBins(bestTheta_out, bestPhi_out, 
                     this_binTheta, this_binPhi);
             }
-
+            if (debugMode) {
+                cout << "pealSol[element] = " << peakSol[element] << endl;
+                cout << "this_binTheta = " << this_binTheta << endl;
+                cout << "this_binPhi = " << this_binPhi << endl;            
+            }
             double this_arrivalTheta, this_arrivalPhi;
             theCorrelators[element]->LookupArrivalAngles(i, peakSol[element], 
                 this_binTheta, this_binPhi,
@@ -928,11 +1258,11 @@ int main(int argc, char **argv)
             reco_launchThetas_out[i] = this_launchTheta*180/PI;
             reco_launchPhis_out[i] = this_launchPhi*180/PI;             
             if (debugMode) {
-                cout << "*******************************" << endl;
-                cout << "i = " << i << endl;
-                cout << "pealSol[element] = " << peakSol[element] << endl;
-                cout << "this_binTheta = " << this_binTheta << endl;
-                cout << "this_binPhi = " << this_binPhi << endl;
+                // cout << "*******************************" << endl;
+                // cout << "i = " << i << endl;
+                // cout << "pealSol[element] = " << peakSol[element] << endl;
+                // cout << "this_binTheta = " << this_binTheta << endl;
+                // cout << "this_binPhi = " << this_binPhi << endl;
                 cout << "this_arrivalTime = " << this_arrivalTime << endl;
                 cout << "reco_arrivalThetas_out[i] = " << reco_arrivalThetas_out[i] << endl;
                 cout << "reco_arrivalPhis_out[i] = " << reco_arrivalPhis_out[i] << endl;
