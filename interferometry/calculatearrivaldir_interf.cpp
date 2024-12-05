@@ -68,46 +68,46 @@ void getCorrMapPeak( TH2D *theCorrMap_input, double &peakTheta, double &peakPhi,
 
 
 //TODO: make radii and numScanned a little more dynamic so that it doesn't have to be hardcoded.  Maybe had it scan the rt_tables folder to have ti compile a list of radii that match the station, then defining the radii array using those values?  numScanned would simply just be the length of radii[]. Should also have it scan AFTER the station number is declared.  4/6/2024
-double radiiOld[] = {
-    //   0,  
-    // 150,  
-    // 300,  
-    // 450,  
-    // 600,  
-    // 750,  
-    // 900, 
-    // 1050, 
-    // 1200, 
-    // 1350, 
-    // 1500, 
-    // 1650, 
-    // 1800, 
-    // 1950,
-    // 2100, 
-    // 2250, 
-    2400, 
-    2550, 
-    2700,
-    2850, 
-    3000, 
-    3150, 
-    3300
-    // 3450, 
-    // 3600, 
-    // 3750, 
-    // 3900, 
-    // 4050,
-    // 4200, 
-    // 4350, 
-    // 4500, 
-    // 4650, 
-    // 4800, 
-    // 4950
-};
+// double radiiOld[] = {
+//     //   0,  
+//     // 150,  
+//     // 300,  
+//     // 450,  
+//     // 600,  
+//     // 750,  
+//     // 900, 
+//     // 1050, 
+//     // 1200, 
+//     // 1350, 
+//     // 1500, 
+//     // 1650, 
+//     // 1800, 
+//     // 1950,
+//     // 2100, 
+//     // 2250, 
+//     2400, 
+//     2550, 
+//     2700,
+//     2850, 
+//     3000, 
+//     3150, 
+//     3300
+//     // 3450, 
+//     // 3600, 
+//     // 3750, 
+//     // 3900, 
+//     // 4050,
+//     // 4200, 
+//     // 4350, 
+//     // 4500, 
+//     // 4650, 
+//     // 4800, 
+//     // 4950
+// };
 
 // double radii[] = {2575};
 
-const int numScannedOld = sizeof(radiiOld)/sizeof(radiiOld[0]);
+// const int numScannedOld = sizeof(radiiOld)/sizeof(radiiOld[0]);
 
 int main(int argc, char **argv)
 {
@@ -179,26 +179,18 @@ int main(int argc, char **argv)
         }        
     }
     else {
-        if (not fineRadii) {
-            for (int r=0; r<numScannedOld; r++) {
-                radii.push_back(radiiOld[r]);
-            }
-        }      
-        else if (station == 1 or station==100) {
+        // if (not fineRadii) {
+        //     for (int r=0; r<numScannedOld; r++) {
+        //         radii.push_back(radiiOld[r]);
+        //     }
+        // }      
+        // else if (station == 1 or station==100) {
+        
+        if (station == 1 or station==100) {
             for (int r=800; r<1200; r+=10) {
                 radii.push_back(r);
             }
         }        
-        // else if (station == 1 or station==100) {
-        //     for (int r=1250; r<2100; r+=10) {
-        //         radii.push_back(r);
-        //     }
-        // }    
-        // else if (station == 2) {
-        //     for (int r=2390; r<2930; r+=10) {
-        //         radii.push_back(r);
-        //     }
-        // }
         else if (station == 2) {
             for (int r=100; r<4000; r+=100) {
                 radii.push_back(r);
@@ -347,26 +339,17 @@ int main(int argc, char **argv)
     //Try importing paramters using the setup file
     Settings *settings1 = new Settings();
     settings1->ReadFile(setupfile); 
-    cout << "aaa" << endl;
     AraGeomTool *geomTool = AraGeomTool::Instance();
-    cout << "bbb" << endl;
     geomTool->getStationInfo(settings1->DETECTOR_STATION, 2018); 
-    cout << "ccc" << endl;
     
     //Set pedestal file
     AraEventCalibrator *cal = AraEventCalibrator::Instance();
-    cout << "ddd" << endl;
     setPedestalFile(cal, settings1->DETECTOR_STATION, runNum);
-    cout << "eee" << endl;
     
     IceModel *icemodel=new IceModel(settings1->ICE_MODEL + settings1->NOFZ*10,settings1->CONSTANTICETHICKNESS * 1000 + settings1->CONSTANTCRUST * 100 + settings1->FIXEDELEVATION * 10 + 0,settings1->MOOREBAY);// creates Antarctica ice model
-    cout << "jjj" << endl;
     Detector *detector = new Detector(settings1, icemodel, setupfile);   //This throws the usefulEvent error
-    cout << "kkk" << endl;
     Report *report = new Report(detector, settings1);
-    cout << "lll" << endl;
     RaySolver *raySolver = new RaySolver;
-    cout << "fff" << endl;
     //End attempt at importing setup parameters
     
     double dt = settings1->TIMESTEP*1e9;
@@ -408,10 +391,8 @@ int main(int argc, char **argv)
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
     std::vector<int> excludedChannels;
     getExcludedChannels(excludedChannels, settings1, detector);
-    cout << "ggg" << endl;
     std::map< int, std::vector<int> > pairs_V = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kVertical, excludedChannels, settings1->DETECTOR_YEAR);  //This throws the usefulEvent error
     std::map< int, std::vector<int> > pairs_H = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kHorizontal, excludedChannels, settings1->DETECTOR_YEAR);    
-    cout << "hhh" << endl;
     
     // Check if sim or real data file by checking for existence of AraTree
     TTree *simSettingsTree;
@@ -425,18 +406,15 @@ int main(int argc, char **argv)
     
     geomTool->getStationInfo(settings1->DETECTOR_STATION, 2018);
     
-    //Trying condition where it checks for usefulAtriStation branch and imports according to that.
+    //Check for AraTree, as that dictates whether to treat it as simulated or real data.
     if(!simSettingsTree) { 
         dataLike = true;            
         std::cerr << "Can't find AraTree.  Importing as real data.\n";
-        // TTree* atriExists=(TTree*) fp->Get("UsefulAtriStationEvent");
-        // if (!atriExists) {
-        //Checks if usefulAtri branch exists.  If not, fata gets imported as uncalibrated.
+        //Checks if usefulAtri branch exists.  If not, data gets imported as uncalibrated.
         if (not eventTree->GetBranch("UsefulAtriStationEvent")) {
             calibrated = false;
             cout << "Can't find UsefulAtriStationEvent Tree.  Importing as uncalibrated." << endl;
             eventTree->SetBranchAddress("event",&rawAtriEvPtr);
-            // eventTree->SetBranchAddress("eventTree",&rawAtriEvPtr);
         }
         else {
             calibrated = true;
@@ -466,19 +444,6 @@ int main(int argc, char **argv)
         simTree->SetBranchAddress("report", &reportPtr);
     }
     
-    // eventTree->GetEntry(0);
-    // cout << "Triggering uncalibrated data-like condition." << endl;
-    // delete usefulAtriEvPtr;  //Need to delete the initialized pointer in order to create a new one.
-    // usefulAtriEvPtr = new UsefulAtriStationEvent(rawAtriEvPtr, AraCalType::kLatestCalib);   
-    
-    
-    // cout << "Calling ara station info one more time!" << endl;
-    // geomTool->getStationInfo(settings1->DETECTOR_STATION, 2018);
-    // geomTool->LoadSQLDbAtri(usefulAtriEvPtr->unixTime, settings1->DETECTOR_STATION_ARAROOT);
-    
-    //End new import method
-
-    
     printf("------------------\n");
     printf("Input files loaded. Set up ray tracing business\n");
     printf("------------------\n");
@@ -497,12 +462,7 @@ int main(int argc, char **argv)
     
     for(Long64_t event=loopStart;event<loopEnd;event++) {  
         fp->cd();
-        cout << "aaa" << endl;
-        eventTree->GetEntry(event);  
-        // geomTool->getStationInfo(settings1->DETECTOR_STATION, 2018);  
-        // AraGeomTool *geomTool = AraGeomTool::Instance();
-        // geomTool->getStationInfo(usefulAtriEvPtr->stationId, usefulAtriEvPtr->unixTime);  
-        // geomTool->LoadSQLDbAtri(usefulAtriEvPtr->unixTime, usefulAtriEvPtr->stationId);      
+        eventTree->GetEntry(event);     
         double pulserDepth;
         double vertexTheta;
         double vertexPhi;
@@ -533,9 +493,8 @@ int main(int argc, char **argv)
             cout << "Pulser depth at " << pulserDepth << endl;
         }
         catch(std::out_of_range) {
-            cout << "Pulser depth at " << runNum << endl;
+            cout << "Unix time outside of 2018 SPICE range.  Assuming pulser depth at run number:" << runNum << endl;
         }
-        // cout << "Pulser depth at " << getPulserDepth(0) << endl;
         getPulserVertex(detector, settings1, geomTool, pulserDepth, vertexTheta, vertexPhi, vertexRadius, debugMode);
         //Convert vertexTheta and Phi into degrees and same coordiante system as maps
         vertexTheta*=180/PI;
@@ -544,21 +503,14 @@ int main(int argc, char **argv)
         if (vertexPhi > 180) {
             vertexPhi-=360;
         }
-        cout << "Calculate pulser position at (R, theta[deg], phi[deg]) = (" << vertexRadius << ", " << vertexTheta << ", " << vertexPhi << ")" << endl;   
+        cout << "Calculated pulser position at (R, theta[deg], phi[deg]) = (" << vertexRadius << ", " << vertexTheta << ", " << vertexPhi << ")" << endl;   
         
         getNearestVertexBin(vertexRadius, vertexTheta, vertexPhi, angular_size, deltaR, nearestRadius, nearestTheta, nearestPhi);
         cout << "Nearest vertex at (R, theta[deg], phi[deg]) = (" << nearestRadius << ", " << nearestTheta << ", " << nearestPhi << ")" << endl;           
         
         if (dataLike) {
-        // AraGeomTool *geomTool = AraGeomTool::Instance();
             geomTool->getStationInfo(usefulAtriEvPtr->stationId, usefulAtriEvPtr->unixTime);  
             geomTool->LoadSQLDbAtri(usefulAtriEvPtr->unixTime, usefulAtriEvPtr->stationId);           
-            // AraGeomTool *geomTool = AraGeomTool::Instance();
-            // geomTool->getStationInfo(settings1->DETECTOR_STATION, 2018);  
-            // cout << "usefulAtriEvPtr->unixTime = " << usefulAtriEvPtr->unixTime << endl;
-            // cout << "usefulAtriEvPtr->stationId = " << usefulAtriEvPtr->stationId << endl;
-            // cout << "rawAtriEvPtr->stationId = " << rawAtriEvPtr->stationId << endl;
-            // geomTool->LoadSQLDbAtri(usefulAtriEvPtr->unixTime, '\x01');
             cout << "SQL DB Loaded!" << endl;
         }
         
@@ -621,10 +573,6 @@ int main(int argc, char **argv)
             
             TGraph *grV = usefulAtriEvPtr->getGraphFromRFChan(i);
             TGraph *grH = usefulAtriEvPtr->getGraphFromRFChan(i+8);
-            // if (debugMode) {
-            //     cout << "VPol RFChan = " << i << " | ElecChan = " << geomTool->getElecChanFromRFChan(i,usefulAtriEvPtr->stationId) << endl;
-            //     cout << "HPol RFChan = " << i+8 << " | ElecChan = " << geomTool->getElecChanFromRFChan(i+8,usefulAtriEvPtr->stationId) << endl;
-            // }
             TGraph *grIntV = FFTtools::getInterpolatedGraph(grV, dt);  //Real data interpolation
             TGraph *grIntH = FFTtools::getInterpolatedGraph(grH, dt);  //Real data interpolation
             TGraph *grIntVBeforeBandpass = FFTtools::getInterpolatedGraph(grV, dt);  //Real data interpolation
@@ -691,13 +639,8 @@ int main(int argc, char **argv)
             noiseRmsBeforeBandpass[i] = noiseRmsChVBeforeBandpass;
             noiseRmsBeforeBandpass[i+8]=noiseRmsChHBeforeBandpass;            
             
-            if (debugMode) {
-                cout <<"primaryPeakIntPowers[0] = " << primaryPeakIntPowers[0] << endl;
-                cout <<"primaryPeakIntPowers[1] = " << primaryPeakIntPowers[1] << endl;
-            }
-            // if (primaryPeakIntPowers[1] > peakThreshold and primaryPeakIntPowers[1] > 0.25*primaryPeakIntPowers[0] and not usefulAtriEvPtr->isCalpulserEvent() and not noCutoff) {
             if (primaryPeakIntPowers[1] > peakThreshold and not usefulAtriEvPtr->isCalpulserEvent() and not noCutoff) {            
-                // cout << "Assuming double-peak signal." << endl;
+                cout << "Assuming double-peak signal." << endl;
                 if(primaryHitTimes[1]>primaryHitTimes[0]) {
                     firstPeak = primaryHitTimes[0];
                     secondPeak = primaryHitTimes[1];
@@ -710,10 +653,6 @@ int main(int argc, char **argv)
                 cutoffTime[i+8] = firstPeak + (secondPeak-firstPeak)/2;
                 
                 //Export peak times to outTree.  Assuming no birefringence at the moment, so V and H signal arrive at the same time.  TODO: Include birefringence in this. 5/14/2024
-                // directPeakTimes[i] = primaryHitTimes[0];
-                // directPeakTimes[i+8] = primaryHitTimes[0];
-                // refPeakTimes[i] = primaryHitTimes[1];
-                // refPeakTimes[i+8] = primaryHitTimes[1];   
                 directPeakTimes[i] = firstPeak;
                 directPeakTimes[i+8] = firstPeak;
                 refPeakTimes[i] = secondPeak;
@@ -793,19 +732,9 @@ int main(int argc, char **argv)
                 // grH->GetXaxis()->SetLimits(-100, 50);
             }
             
-            if (debugMode){
-                cout << "**********************" << endl;           
-                cout << "Ch = " << i << endl;            
-                cout << "initial waveform length = " << grV->GetN() << endl;            
-                cout << "interpolated waveform length = " << grIntV->GetN() << endl;            
-                cout << "cutoffTime at " << cutoffTime[i] << endl; 
-            }
             //Crop waveform to first peak
             if (cutoffTime[i] > grIntV->GetX()[0]) {
                 grIntV = FFTtools::cropWave(grIntV, grIntV->GetX()[0], cutoffTime[i]);
-            }
-            if (debugMode){
-                cout << "cropped waveform length = " << grIntV->GetN() << endl;            
             }
             //Either pad or crop waveform to fit NFOUR/2
             if (grIntV->GetN() < settings1->NFOUR/2) {
@@ -814,25 +743,12 @@ int main(int argc, char **argv)
             else if (grIntV->GetN() > settings1->NFOUR/2) {
                 grIntV = FFTtools::cropWave(grIntV, grIntV->GetX()[0], grIntV->GetX()[settings1->NFOUR/2-1]);
             }
-            if (debugMode){
-                cout << "padded waveform length = " << grIntV->GetN() << endl;
-            }
             interpolatedWaveforms[i] = grIntV;  
             interpolatedWaveformsBeforeBandpass[i] = grIntVBeforeBandpass;  
             
-            if (debugMode){
-                cout << "**********************" << endl;           
-                cout << "Ch = " << i+8 << endl;            
-                cout << "initial waveform length = " << grH->GetN() << endl;            
-                cout << "interpolated waveform length = " << grIntH->GetN() << endl;            
-                cout << "cutoffTime at " << cutoffTime[i+8] << endl;  
-            }
             //Crop waveform to first peak
             if (cutoffTime[i+8] > grIntH->GetX()[0]) {
                 grIntH = FFTtools::cropWave(grIntH, grIntH->GetX()[0], cutoffTime[i+8]);
-            }
-            if (debugMode){
-                cout << "cropped waveform length = " << grIntH->GetN() << endl;    
             }
             //Either pad or crop waveform to fit NFOUR/2
             if (grIntH->GetN() < settings1->NFOUR/2) {
@@ -840,9 +756,6 @@ int main(int argc, char **argv)
             }
             else if (grIntH->GetN() > settings1->NFOUR/2) {
                 grIntH = FFTtools::cropWave(grIntH, grIntH->GetX()[0], grIntH->GetX()[settings1->NFOUR/2-1]);
-            }
-            if (debugMode){
-                cout << "padded waveform length = " << grIntV->GetN() << endl;
             }
             interpolatedWaveforms[i+8] = grIntH; 
             interpolatedWaveformsBeforeBandpass[i+8] = grIntHBeforeBandpass; 
@@ -856,8 +769,6 @@ int main(int argc, char **argv)
             sprintf(title, "%s/waveform.png", outputDir);
             c->Print(title);
         }
-        
-        cout << "aaa" << endl;
     
         std::map<int, double> snrs; // map of channels to SNRs
         for(int i=0; i<16; i++){
@@ -872,8 +783,6 @@ int main(int argc, char **argv)
             }
         }
         
-        cout << "bbb" << endl;
-        
         std::map<int, double> snrs_fullBand; // map of channels to SNRs
         for(int i=0; i<16; i++){
             
@@ -886,8 +795,6 @@ int main(int argc, char **argv)
                 snrs_fullBand[i] = peak_max/noiseRmsBeforeBandpass[i];
             }
         }        
-        
-        cout << "ccc" << endl;
         
         // cout << "bbb" << endl;
         std::vector<double> snrs_v;
@@ -946,15 +853,10 @@ int main(int argc, char **argv)
             weights_H[pairNum] = snr_prod;
         }
         
-        cout << "ddd" << endl;
-        
 
         for(int i=0; i<weights_H.size(); i++){ weights_H[i]/=tot_weight_h; }     
-        cout << "eee" << endl;
         std::vector<TGraph*> corrFunctions_V = theCorrelators[0]->GetCorrFunctions(pairs_V, interpolatedWaveforms, true); 
         std::vector<TGraph*> corrFunctions_H = theCorrelators[0]->GetCorrFunctions(pairs_H, interpolatedWaveforms, true); 
-        
-        cout << "fff" << endl;
 
         std::vector<double> peakCorrs;
         std::vector<double> peakThetas;
@@ -963,26 +865,9 @@ int main(int argc, char **argv)
         std::vector<int> peakSol;
 
         for(int r=0; r<radii.size(); r++){
-            // if (usePulserCalculation) {
-            //     if (radii[r] != nearestRadius) {
-            //         continue;
-            //     }
-            // }
-            // std::vector<TH2D*> maps;
             double peakCorr, peakTheta, peakPhi;
             if (usePulserCalculation) {
                 if (radii[r] != nearestRadius) {
-//                     int element=0;
-//                     peakCorrs.push_back(peakCorr);
-
-//                     peakThetas.push_back(peakTheta); 
-//                     peakPhis.push_back(peakPhi);
-
-//                     if(element < 2){ peakPol.push_back(0); }
-//                     else{peakPol.push_back(1);}
-
-//                     if(element==0 || element ==2){ peakSol.push_back(0);}
-//                     else if(element==1 || element ==3 ){ peakSol.push_back(1);}
                     continue;
                 }
             }
@@ -998,15 +883,11 @@ int main(int argc, char **argv)
             std::vector<double> bestOne;
             for(int i=0; i<4; i++){
                 double peakCorr, peakTheta, peakPhi;
-                getCorrMapPeak(maps[i], peakTheta, peakPhi, peakCorr);
-                // printf("      i %d, peakCorr %e\n", i, peakCorr);               
-
+                getCorrMapPeak(maps[i], peakTheta, peakPhi, peakCorr);   
                 bestOne.push_back(peakCorr);
             }
             auto it = max_element(std::begin(bestOne), std::end(bestOne));
             int element = distance(bestOne.begin(), it);
-            // printf("    Best Option is %d with corr %e \n",element, *it);
-            // double peakCorr, peakTheta, peakPhi;
             getCorrMapPeak(maps[element], peakTheta, peakPhi, peakCorr);
             peakCorrs.push_back(peakCorr);
 
@@ -1018,8 +899,6 @@ int main(int argc, char **argv)
 
             if(element==0 || element ==2){ peakSol.push_back(0);}
             else if(element==1 || element ==3 ){ peakSol.push_back(1);}
-            //Forcing direct solution in the reconstruction
-            // peakSol.push_back(0);
 
             printf("    Correlated radius %.2f, Corr %.4f \n",radii[r], peakCorr);
 
@@ -1027,12 +906,10 @@ int main(int argc, char **argv)
                 delete maps[i];
             }
         }
-        // auto it;
-        // auto it = max_element(std::begin(peakCorrs), std::end(peakCorrs));
+
         int element;
         if (usePulserCalculation) {
             auto it = std::find(radii.begin(), radii.end(), nearestRadius);
-            // element = distance(radii.begin(), it);
             element = 0;
         }
         else {
@@ -1229,10 +1106,9 @@ int main(int argc, char **argv)
         }     
 
         
-        // then the true quantities (if applicable)
+        // then the MCtruth quantities (if applicable)
         if (not dataLike) {
             int likely_sol = guess_triggering_solution(eventPtr, reportPtr);
-            // int likely_sol = 0;  //Forcing solution to zero since we set up the double peak finder to look for the D pulse.
             std::map<int, double> thetas_truth = get_value_from_mc_truth("theta", likely_sol, reportPtr);
             std::map<int, double> phis_truth = get_value_from_mc_truth("phi", likely_sol, reportPtr);
             std::map<int, double> launch_thetas_truth = get_value_from_mc_truth("theta_launch", likely_sol, reportPtr);
@@ -1243,9 +1119,6 @@ int main(int argc, char **argv)
                 double this_true_phi = phis_truth.find(i)->second;
                 double this_true_launch_theta = launch_thetas_truth.find(i)->second;
                 double this_true_launch_phi = launch_phis_truth.find(i)->second;                
-                // printf("  Ant %d, True Arrival Theta %.2f, Reco Arrival Phi %.2f \n",
-                //     i, this_true_theta, this_true_phi
-                // );
                 true_arrivalThetas_out[i] = this_true_theta*180/PI;
                 true_arrivalPhis_out[i] = this_true_phi*180/PI; 
                 true_launchThetas_out[i] = this_true_launch_theta*180/PI;
@@ -1254,7 +1127,7 @@ int main(int argc, char **argv)
             trueTheta_out = 90 - diff_true.Theta() * TMath::RadToDeg();  //Converted to match the zenith in the reconstruction calculation.
             truePhi_out = (std::fmod((diff_true.Phi() * TMath::RadToDeg())+180,360))-180;
             trueR_out = diff_true.R();
-            likelySol_out = likely_sol; //The output for this is a large negative number, even when likely_sol is hardcoded to zero.
+            likelySol_out = likely_sol;
             
             thetas_truth.clear();
             phis_truth.clear();
@@ -1265,12 +1138,6 @@ int main(int argc, char **argv)
 
         
         for(int i=0; i<16; i++){
-            if (debugMode) {
-                cout << "*******************************" << endl;
-                cout << "i = " << i << endl;
-                cout << "bestTheta_out = " <<  bestTheta_out << endl;
-                cout << "bestPhi_out = " <<  bestPhi_out << endl;
-            }
 
             int this_binTheta, this_binPhi;
             if (useMcTruth) {
@@ -1284,11 +1151,6 @@ int main(int argc, char **argv)
             else {
                 theCorrelators[element]->ConvertAngleToBins(bestTheta_out, bestPhi_out, 
                     this_binTheta, this_binPhi);
-            }
-            if (debugMode) {
-                cout << "pealSol[element] = " << peakSol[element] << endl;
-                cout << "this_binTheta = " << this_binTheta << endl;
-                cout << "this_binPhi = " << this_binPhi << endl;            
             }
             double this_arrivalTheta, this_arrivalPhi;
             theCorrelators[element]->LookupArrivalAngles(i, peakSol[element], 
@@ -1307,20 +1169,7 @@ int main(int argc, char **argv)
             reco_arrivalPhis_out[i] = this_arrivalPhi*180/PI; 
             arrivalTimes_out[i] = this_arrivalTime;
             reco_launchThetas_out[i] = this_launchTheta*180/PI;
-            reco_launchPhis_out[i] = this_launchPhi*180/PI;             
-            if (debugMode) {
-                // cout << "*******************************" << endl;
-                // cout << "i = " << i << endl;
-                // cout << "pealSol[element] = " << peakSol[element] << endl;
-                // cout << "this_binTheta = " << this_binTheta << endl;
-                // cout << "this_binPhi = " << this_binPhi << endl;
-                cout << "this_arrivalTime = " << this_arrivalTime << endl;
-                cout << "reco_arrivalThetas_out[i] = " << reco_arrivalThetas_out[i] << endl;
-                cout << "reco_arrivalPhis_out[i] = " << reco_arrivalPhis_out[i] << endl;
-                cout << "reco_launchThetas_out[i] = " << reco_launchThetas_out[i] << endl;
-                cout << "reco_launchPhis_out[i] = " << reco_launchPhis_out[i] << endl;                
-                cout << "*******************************" << endl;
-            }            
+            reco_launchPhis_out[i] = this_launchPhi*180/PI;                        
         }
 
         

@@ -90,13 +90,7 @@ int main(int argc, char **argv)
         std::cout << "e.g.\n" << argv[0] << " 1000 150 300 setup.txt AraOut.root recangle_out_run1000.root output/\n";        
         return 0;
     }
-    
-    // if (argc>8){
-    //     std::string action(argv[8]);
-    //     if(action == "debug") {
-    //         debugMode = true;
-    //     }
-    // }     
+      
     if (argc>8){
         int i = 8;
         while(argv[i] != NULL) {
@@ -155,7 +149,6 @@ int main(int argc, char **argv)
     
     AraGeomTool *geomTool = AraGeomTool::Instance();
     Event *eventPtr = new Event();
-    // Report *report = new Report();
     double weight;
 
     
@@ -163,8 +156,6 @@ int main(int argc, char **argv)
     if(!simSettingsTree) { 
         dataLike = true;            
         std::cerr << "Importing as real data.\n";
-        // TTree* atriExists=(TTree*) fp->Get("UsefulAtriStationEvent");
-        // if (!atriExists) {
         //Checks if usefulAtri branch exists.  If not, fata gets imported as uncalibrated.
         if (not eventTree->GetBranch("UsefulAtriStationEvent")) {
             calibrated = false;
@@ -319,10 +310,8 @@ int main(int argc, char **argv)
     }
     
     IceModel *icemodel=new IceModel(settings1->ICE_MODEL + settings1->NOFZ*10,settings1->CONSTANTICETHICKNESS * 1000 + settings1->CONSTANTCRUST * 100 + settings1->FIXEDELEVATION * 10 + 0,settings1->MOOREBAY);// creates Antarctica ice model
-    Detector *detector = new Detector(settings1, icemodel, setupfile);  
-    // Report *report = new Report(detector, settings1);
+    Detector *detector = new Detector(settings1, icemodel, setupfile);
     Report *report = new Report(detector, settings1);
-    // Event *eventPtr = new Event();
     
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
     std::vector<int> excludedChannels; 
@@ -352,7 +341,6 @@ int main(int argc, char **argv)
     outTree->Branch("phi_nutraject", &phi_nutraject, "phi_nutraject[8]/D");
     outTree->Branch("bestSol", &bestSol_out, "bestSol/I");
     outTree->Branch("weight", &weight_out, "weight/D");
-    // outTree->Branch("pulserDepth", &pulserDepth, "pulserDepth/D")
     
     TTree *outTreeCsw = new TTree("coherentSum", "coherentSum");
     outTreeCsw->Branch("UsefulAtriStationEvent", &usefulAtriCswPtrOut); 
@@ -366,13 +354,10 @@ int main(int argc, char **argv)
     outTreeCsw->Branch("mean_theta_nutraject", &mean_theta_nutraject, "mean_theta_nutraject/D");
     outTreeCsw->Branch("mean_phi_nutraject", &mean_phi_nutraject, "mean_phi_nutraject/D");
     outTreeCsw->Branch("cherenkovAngle", &cherenkovAngle, "cherenkovAngle/D");
-    // outTreeCsw->Branch("pulserDepth", &pulserDepth, "pulserDepth/D")
     
-    // TTree *outTreeVertexReco = new TTree("vertexReco", "vertexReco");
     TTree *outTreeVertexReco = vertexReco->CloneTree();
     TTree *outTreeMCTruth;
     if (not dataLike) {
-        // outTreeMCTruth = new TTree("AraTree2", "AraTree2");   
         outTreeMCTruth = AraTree2->CloneTree();
         
         outTreeCsw->Branch("true_theta_nutraject", &true_theta_nutraject, "true_theta_nutraject[8]/D");
@@ -440,16 +425,9 @@ int main(int argc, char **argv)
             
             
         }
-        
-        // outTree = eventTree->CloneTree();  
-        // outTree->Fill(); 
-        
-        // outTreeVertexReco = vertexReco->CloneTree();
-        // outTreeVertexReco->Fill();
-        
+
         try {
             pulserDepth = getPulserDepth(usefulAtriEvPtr->unixTime);
-            // pulserDepth = getPulserDepth(usefulAtriEvPtrOut->unixTime);
             cout << "Pulser depth at " << pulserDepth << endl;
         }
         catch(std::out_of_range) {
@@ -464,14 +442,6 @@ int main(int argc, char **argv)
                                          13,1,5,9};  //HPols
 
         for(int i=0; i<16; i++){
-            // usefulAtriEvPtr->stationId = settings1->DETECTOR_STATION_ARAROOT;
-            if (debugMode) {
-                cout << "########################################" << endl;
-                cout << "Channel = " << i << endl;
-                cout << "usefulAtriEvPtr->stationId = " << usefulAtriEvPtr->stationId << endl;
-                cout << "settings1->DETECTOR_STATION_ARAROOT = " << settings1->DETECTOR_STATION_ARAROOT << endl;
-                cout << "usefulAtriEvPtr->getStationId() = " << usefulAtriEvPtr->getStationId() << endl;
-            }
 
             TGraph *gr = usefulAtriEvPtr->getGraphFromRFChan(i);
             TGraph *grOriginal = gr;
@@ -479,11 +449,6 @@ int main(int argc, char **argv)
             //Save initial and final time for truncating the padded arrays before output.
             double timeStart = gr->GetX()[0];
             double timeEnd = gr->GetX()[gr->GetN()-1];
-            
-            if (debugMode) {
-                cout << "timeStart = " << timeStart << endl;
-                cout << "timeEnd = " << timeEnd << endl;
-            }
             
             //Grabbing noise sample of waveform to try spectral subtraction
             //Check if peakTime is in the sample region at beginning of waveform
@@ -510,25 +475,15 @@ int main(int argc, char **argv)
                 gr->GetX()[k] = gr->GetX()[k] - timeShift;
             }               
             
-            // if (debugMode) {cout << "rrr" << endl;}
             //Interpolate graph to 0.5 ns resolution (or whatever TIMESTEP is specified in the setup file)
             gr = FFTtools::getInterpolatedGraph(gr,dt);
             grOriginal = FFTtools::getInterpolatedGraph(grOriginal,dt);
-            if (debugMode) {
-                cout << "gr->GetN() = " << gr->GetN() << endl;
-                cout << "gr->GetX()[0] = " << gr->GetX()[0] << endl;
-            }
             TGraph *grNoise = FFTtools::cropWave(gr, tNoiseMin-timeShift, tNoiseMax-timeShift);
 
             double noiseSampleLength = grNoise->GetN();
 
             //Pad waveform to a factor of two as specified in the setup file. - JCF 9/27/2023
-            gr = resizeForFFT(gr, settings1->NFOUR);
-
-            if (debugMode) {
-                cout << "gr->GetN() = " << gr->GetN() << endl;
-                cout << "gr->GetX()[0] = " << gr->GetX()[0] << endl;
-            }            
+            gr = resizeForFFT(gr, settings1->NFOUR);           
             grNoise = resizeForFFT(grNoise, settings1->NFOUR);
 
             // Get length of padded waveform
@@ -586,11 +541,6 @@ int main(int argc, char **argv)
                 antenna_phi = reco_arrivalPhis[vertexRecoElectToRFChan[i]];//*180/PI;              
             }
             
-            if (debugMode) {
-                cout << "antenna_theta = " << antenna_theta << endl;
-                cout << "antenna_phi = " << antenna_phi << endl;
-            }
-            
             //Calculate polarization vector that inverts the polarization factor (makes dot products equal to one)
             double newPol_vectorX = -sin(antenna_phi*PI/180);
             double newPol_vectorY = cos(antenna_phi*PI/180);
@@ -638,17 +588,7 @@ int main(int argc, char **argv)
             
             // get spectrum with zero padded WF
             Tools::realft(V_forfft, 1, Nnew); 
-            Tools::realft(Vnoise_forfft, 1, Nnew); 
-            
-            if (debugMode) {
-                cout << "*****************************" << endl;
-                cout << "V_forfft (before factors) = " << endl;
-                // for (int n=0; n<Nnew/2; n++) {
-                for (int n=0; n<10; n++) {
-                    cout << V_forfft[2*n] << " + i " << V_forfft[2*n+1] << ", ";
-                }
-                cout << endl;         
-            }                     
+            Tools::realft(Vnoise_forfft, 1, Nnew);                     
             
             dF_Nnew = 1. / ((double)(Nnew) *(dT_forfft) *1.e-9);    // in Hz
 
@@ -659,7 +599,7 @@ int main(int argc, char **argv)
             heff_lastbin = report->GaintoHeight(detector->GetGain_1D_OutZero(freq_tmp *1.E-6,   // to MHz
                                                 antenna_theta, antenna_phi, pol_ant),
                                                 freq_tmp, nice);                  
-            if (debugMode) {cout << "aaa" << endl;}
+
             for (int n = 0; n < Nnew / 2; n++)
             // for (int n = 0; n < settings1->NFOUR / 2; n++)            
             {
@@ -678,12 +618,7 @@ int main(int argc, char **argv)
                 }
                 // invert entire elect chain gain, phase
                 if (n > 0)
-                {  
-                if (debugMode and n == 500) {
-                    cout << "Before Elec " << endl;                    
-                    cout <<  "V_forfft[2*n] = " <<  V_forfft[2*n] << endl;
-                    cout <<  "V_forfft[2*n+1] = " <<  V_forfft[2*n+1] << endl;      
-                }                           
+                {                         
                     report->InvertElect_Tdomain(
                         freq_tmp *1.e-6, 
                         detector, 
@@ -702,7 +637,6 @@ int main(int argc, char **argv)
                         settings1);                    
                     
                 }
-                // if (debugMode) {cout << "ccc" << endl;}
                 else
                 {
                     report->InvertElect_Tdomain_FirstTwo(
@@ -724,12 +658,7 @@ int main(int argc, char **argv)
                         gain_ch_no,
                         settings1);                    
                 }
-                if (debugMode and n == 500) {
-                    cout << "After Elec, before Ant "<< endl;                    
-                    cout <<  "V_forfft[2*n] = " <<  V_forfft[2*n] << endl;
-                    cout <<  "V_forfft[2*n+1] = " <<  V_forfft[2*n+1] << endl;      
-                }    
-                // if (debugMode) {cout << "ddd" << endl;}
+                
                 if (n > 0)
                 {
                     report->InvertAntFactors_Tdomain(
@@ -786,16 +715,7 @@ int main(int argc, char **argv)
                         antenna_phi,
                         freq_tmp);                    
 
-                }
-                
-                if (debugMode and n == 500) {
-                    cout << "After ant " << endl;
-                    cout << "realWeinerCorr = " << realWeinerCorr << endl;
-                    cout << "imagWeinerCorr = " << imagWeinerCorr << endl;                    
-                    cout <<  "V_forfft[2*n] = " <<  V_forfft[2*n] << endl;
-                    cout <<  "V_forfft[2*n+1] = " <<  V_forfft[2*n+1] << endl;
-                    cout << "snrPsd[n] = " << snrPsd[n] << endl;
-                }                
+                }             
                 
                 if (weinerCorrection) {
                     //Correction for weiner deconvolution
@@ -807,13 +727,7 @@ int main(int argc, char **argv)
                         V_forfft[2*n] = 0;
                         V_forfft[2*n+1] = 0;
                     }  
-                }
-                
-                if (debugMode and n == 500) {
-                    cout << "After wiener " << endl;                  
-                    cout <<  "V_forfft[2*n] = " <<  V_forfft[2*n] << endl;
-                    cout <<  "V_forfft[2*n+1] = " <<  V_forfft[2*n+1] << endl;      
-                }     
+                }   
                 
                 applyBandpassBin(V_forfft[2*n], V_forfft[2*n+1], freq_tmp, freqMin, freqMax);          
                 //End Butterworth filter 
@@ -859,20 +773,9 @@ int main(int argc, char **argv)
         if (not dataLike) { 
             nofz_atTrueVertex = getNofzAtVertex(geomTool, usefulAtriEvPtrOut, icemodel, trueVertexRadius, trueVertexTheta);
         }
-        
-        // if (not dataLike) {
-        //     cout << "asdasdasdasdasdsad " << calculateTruePsi(eventPtr, report, launch_theta[0]*PI/180, launch_phi[0]*PI/180) << endl;
-        // }
 
         for (int i=0; i<8; i++) {
             calculateNuTrajectory(psiReco[i]*PI/180, launch_theta[i]*PI/180, launch_phi[i]*PI/180, cherenkovAngle, theta_nutraject[i], phi_nutraject[i]);
-            // if (not dataLike) {
-            //     psiTrue[i] = calculateTruePsi(eventPtr, report, launch_theta[i]*PI/180, launch_phi[i]*PI/180);
-            //     // calculateNuTrajectory(psiTrue[i]*PI/180, launch_theta[i]*PI/180, launch_phi[i]*PI/180, nofz_atVertex, theta_nutraject[i], phi_nutraject[i]);
-            //     cout << "theta_nutraject_true = " << eventPtr->Nu_Interaction[0].nnu.Theta()*180/PI << endl;
-            //     cout << "phi_nutraject_true = " << eventPtr->Nu_Interaction[0].nnu.Phi()*180/PI << endl;
-            // }       
-            
         }
         
         //Assign timestamp values to help identify calpulsers
@@ -902,8 +805,6 @@ int main(int argc, char **argv)
             bool checkHpol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();
             if (checkVpol or checkHpol or (snr[i] < snrThreshold) or (snr[i+8] < snrThreshold)) {
                 cout << "Excluding channel pair " << i << endl;
-                cout << "snr[i] = " << snr[i] << endl;
-                cout << "snr[i+8] = " << snr[i+8] << endl;
                 cswExcludedChannelPairs.push_back(i);
             }
 
@@ -912,20 +813,6 @@ int main(int argc, char **argv)
         if (debugMode) {
             TCanvas *cTimeshift = new TCanvas("","", 1600, 1600);
             cTimeshift->Divide(4,4);          
-
-//             //Create array of channel pairs to exclude in the coherent sum
-//             std::vector<int> cswExcludedChannelPairs;
-//             for(int i=0; i<8; i++){
-//                 bool checkVpol = std::find(excludedChannels.begin(), excludedChannels.end(), i) != excludedChannels.end();
-//                 bool checkHpol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();
-//                 if (checkVpol or checkHpol) {
-//                     cout << "Excluding channel pair " << i << endl;
-//                     cswExcludedChannelPairs.push_back(i);
-//                 }
-
-//             }
-            
-            // cout << "bbb" << endl;
             
             double arrivalTimeMax = *max_element(arrivalTimes, arrivalTimes + 16);
             double arrivalTimeMin = *min_element(arrivalTimes, arrivalTimes + 16);        
@@ -953,24 +840,19 @@ int main(int argc, char **argv)
                 lPeak->Draw();     
                 TLine *l6v = new TLine(cutoffTime[i], -1500, cutoffTime[i], 1500);
                 l6v->SetLineStyle(kDashed);
-                l6v->Draw();
-                // TGraph *hilbert = FFTtools::getHilbertEnvelope(gr);
-                // hilbert->Draw();       
-                // hilbert->GetXaxis()->SetLimits(250, 350);   
+                l6v->Draw();  
                 char vTitle[500];
                 // sprintf(vTitle, "A%d Run %s Event %d Ch. %.2d %0.2f", settings1->DETECTOR_STATION_ARAROOT, runNumber, usefulAtriEvPtr->eventNumber, i, pulserDepth);
                 // sprintf(vTitle, "%0.2f", peakTimeOut[i]);
                 sprintf(vTitle, "(%0.4f, %0.4f)", peakTimeOut[i], hilbertPeakOut[i]);
                 // sprintf(vTitle, "A%d Run %s Event %d Ch. %.2d %0.2f", settings1->DETECTOR_STATION_ARAROOT, runNumber, usefulAtriEvPtr->eventNumber, i, TMath::MaxElement(gr->GetN(),gr->GetY()));                
-                gr->SetTitle(vTitle);  
-                // gr->GetXaxis()->SetLimits(250, 350);   
+                gr->SetTitle(vTitle);   
 
 
             }
 
 
             char title[500];
-            // sprintf(title, "%s/waveformDeconvolved_%s.png", outputDir, runNumber);
             sprintf(title, "%s/waveformDeconvolved.png", outputDir);
             cTimeshift->Print(title);  
         }
@@ -982,8 +864,6 @@ int main(int argc, char **argv)
         
         
         calculateCSW(usefulAtriEvPtrOut, excludedChannels, cutoffTime, arrivalTimes, cswVpol, cswHpol, runNumber, sampleNs, dt, debugMode);  //Disabling this because of a seg fault - JCF 8/28/2024
-        // calculateCSW(usefulAtriEvPtrOut, excludedChannels, cutoffTime, directPeakTimes, cswVpol, cswHpol, dt, debugMode);
-
         if (debugMode) {
             cout << "Sizes of csw TGraphs: "<< endl;
             cout << "cswVpol->GetN() = " << cswVpol->GetN() << endl;
@@ -1058,7 +938,6 @@ int main(int argc, char **argv)
         //Set condition for empty events or those that resolve in the shadow zone.
         if (arrivalTimeAvg != -1000 and cswVpol->GetN() != 0 and cswHpol->GetN() != 0) {
             peakHilbert(usefulAtriCswPtrOut, hilbertPeakCswOut, peakTimeCswOut, cutoffTimeCsw, dt, toleranceNs=toleranceNs, findPolarity=findPolarity, debugMode=debugMode);
-            cout << "$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$" << endl;
             for (int i=0; i<16; i++) {
                 
                 cout << hilbertPeakCswOut[i] << endl;
@@ -1097,62 +976,26 @@ int main(int argc, char **argv)
         int numChannels=0;
         mean_theta_nutraject = 0;
         mean_phi_nutraject = 0;
-        cout << "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@" << endl;
         for (int i=0; i<8; i++) {
-            cout << "i = " << i << endl;
             bool checkExcluded = std::find(cswExcludedChannelPairs.begin(), cswExcludedChannelPairs.end(), i) != cswExcludedChannelPairs.end();
             if (not checkExcluded) {
-                cout << "Including i = " << i << endl;
-                cout << "theta_nutrajectCsw[i] = " << theta_nutrajectCsw[i] << endl;
-                cout << "phi_nutrajectCsw[i] = " << phi_nutrajectCsw[i] << endl;
                 mean_theta_nutraject += theta_nutrajectCsw[i];
                 mean_phi_nutraject += phi_nutrajectCsw[i];
                 numChannels++;                
-            }
-            else {
-                cout << "Excluding i = " << i << endl;
-            }
-            cout << "mean_theta_nutraject = " << mean_theta_nutraject << endl;
-            cout << "mean_phi_nutraject = " << mean_phi_nutraject << endl;            
+            }          
             
         }
         mean_theta_nutraject=mean_theta_nutraject/numChannels;
-        mean_phi_nutraject=mean_phi_nutraject/numChannels;
-        cout << "mean_theta_nutraject = " << mean_theta_nutraject << endl;
-        cout << "mean_phi_nutraject = " << mean_phi_nutraject << endl;          
+        mean_phi_nutraject=mean_phi_nutraject/numChannels;        
         
         
         fpOut->cd();
         outTree->Fill();
         outTreeCsw->Fill();
-        // outTreeVertexReco->Fill();
-        // if (not dataLike) {
-        //     // outTreeMCTruth = AraTree2->CloneTree();
-        //     outTreeMCTruth->Fill();
-        // }
 
         if (debugMode) {
             TCanvas *c2 = new TCanvas("","", 1600, 1600);
             c2->Divide(4,4);          
-
-//             //Create array of channel pairs to exclude in the coherent sum
-//             std::vector<int> cswExcludedChannelPairs;
-//             for(int i=0; i<8; i++){
-//                 bool checkVpol = std::find(excludedChannels.begin(), excludedChannels.end(), i) != excludedChannels.end();
-//                 bool checkHpol = std::find(excludedChannels.begin(), excludedChannels.end(), i+8) != excludedChannels.end();
-//                 if (checkVpol or checkHpol) {
-//                     cout << "Excluding channel pair " << i << endl;
-//                     cswExcludedChannelPairs.push_back(i);
-//                 }
-
-//             }
-
-            // double arrivalTimeMax = *max_element(arrivalTimes, arrivalTimes + 16);
-            // double arrivalTimeMin = *min_element(arrivalTimes, arrivalTimes + 16);
-            // double arrivalTimeAvg = 0;
-            // for (int i=0; i<16; i++) {
-            //     arrivalTimeAvg += arrivalTimes[i]/16;
-            // }
 
             for(int i=0; i<16; i++){
 
@@ -1187,89 +1030,10 @@ int main(int argc, char **argv)
             c2->Print(title); 
         }
         
-        if (debugMode) {
-            //Testing peakHilbert function
-            // peakHilbert(usefulAtriEvPtrOut, hilbertPeakOut, peakTimeOut, cutoffTime, dt, debugMode);
-            cout << "hilbertPeakOut = " << endl;
-            for (int k=0; k<16; k++) {
-                cout << hilbertPeakOut[k] << ", ";
-            }
-            cout << endl;
-            cout << "peakTimeOut = " << endl;
-            for (int k=0; k<16; k++) {
-                cout << peakTimeOut[k] << ", ";
-            }
-            cout << endl;
-            
-            calculatePsi(hilbertPeakOut, psiReco, findPolarity);
-            
-            cout << "psi = " << endl;
-            for (int k=0; k<8; k++) {
-                cout << psiReco[k] << ", ";
-            }
-            cout << endl; 
-            cout << "psiRecoCsw = " << endl;
-            for (int k=0; k<8; k++) {
-                cout << psiRecoCsw[k] << ", ";
-            }
-            cout << endl;              
-            cout << "psiTrue = " << endl;
-            for (int k=0; k<8; k++) {
-                cout << psiTrue[k] << ", ";
-            }
-            cout << endl;               
-            
-            
-        }
-        
         usefulAtriCswPtrOut->fVolts.clear();
         usefulAtriCswPtrOut->fTimes.clear();        
         usefulAtriEvPtrOut->fVolts.clear();
         usefulAtriEvPtrOut->fTimes.clear();   
-        if (not dataLike and debugMode) {        
-            for (int i=0; i<16; i++) {
-                cout << "%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%" << endl;
-                cout << "i = " << i << endl;
-                cout << "arrivalTimes[i] = " << arrivalTimes[i] << endl;
-                cout << "psiReco[i%8] = " << psiReco[i%8] << endl;
-                cout << "psiRecoCsw[i%8] = " << psiRecoCsw[i%8] << endl;
-                // cout << "psiRecoCsw2[i%8] = " << psiRecoCsw2[i%8] << endl;
-                // cout << "psiRecoCsw3[i%8] = " << psiRecoCsw3[i%8] << endl;
-                // cout << "psiRecoCsw4[i%8] = " << psiRecoCsw4[i%8] << endl;
-                cout << "psiTrue[i%8] = " << psiTrue[i%8] << endl;
-                // cout << "psiTrue2[i%8] = " << psiTrue2[i%8] << endl;
-                // cout << "psiTrue3[i%8] = " << psiTrue3[i%8] << endl;
-                // cout << "psiTrue4[i%8] = " << psiTrue4[i%8] << endl;
-                cout << "launch_theta[i] = " << launch_theta[i] << endl;
-                cout << "true_launch_theta[i] = " << true_launch_theta[i] << endl;
-                cout << "launch_phi[i] = " << launch_phi[i] << endl;  
-                cout << "true_launch_phi[i] = " << true_launch_phi[i] << endl;
-                cout << "theta_nutraject[i%8] = " << theta_nutraject[i%8] << endl;
-                cout << "theta_nutrajectCsw[i%8] = " << theta_nutrajectCsw[i%8] << endl;
-                cout << "true_theta_nutraject[i%8] = " << true_theta_nutraject[i%8] << endl;
-                // cout << "true_theta_nutraject2[i%8] = " << true_theta_nutraject2[i%8] << endl;
-                // cout << "true_theta_nutraject3[i%8] = " << true_theta_nutraject3[i%8] << endl;
-                // cout << "true_theta_nutraject4[i%8] = " << true_theta_nutraject4[i%8] << endl;
-                cout << "eventPtr->Nu_Interaction[0].nnu.Theta()*180/PI = " << eventPtr->Nu_Interaction[0].nnu.Theta()*180/PI << endl;
-                cout << "phi_nutraject[i%8] = " << phi_nutraject[i%8] << endl;  
-                cout << "phi_nutrajectCsw[i%8] = " << phi_nutrajectCsw[i%8] << endl; 
-                cout << "true_phi_nutraject[i%8] = " << true_phi_nutraject[i%8] << endl;
-                // cout << "true_phi_nutraject2[i%8] = " << true_phi_nutraject2[i%8] << endl;
-                // cout << "true_phi_nutraject3[i%8] = " << true_phi_nutraject3[i%8] << endl;
-                // cout << "true_phi_nutraject4[i%8] = " << true_phi_nutraject4[i%8] << endl;
-                cout << "eventPtr->Nu_Interaction[0].nnu.Phi()*180/PI = " << eventPtr->Nu_Interaction[0].nnu.Phi()*180/PI << endl;            
-                testTrajectoryCalculation(eventPtr, report, true_launch_theta[i]*PI/180, true_launch_phi[i]*PI/180, eventPtr->Nu_Interaction[0].indexN);
-
-                }
-//             cout << "mean_theta_nutraject = " << mean_theta_nutraject << endl;
-//             cout << "mean_phi_nutraject = " << mean_phi_nutraject << endl;
-            
-//             cout << "event->Nu_Interaction[0].indexN = " << eventPtr->Nu_Interaction[0].indexN << endl;
-//             cout << "event->Nu_Interaction[0].changle*180/PI = " << eventPtr->Nu_Interaction[0].changle*180/PI << endl;    
-//             cout << "nofz_atVertex = " << nofz_atVertex << endl;
-//             cout << "acos(1/nofz_atVertex)*180/PI = " << acos(1/nofz_atVertex)*180/PI << endl; 
-
-        }
     } //event loop
 
     fpOut->Write();
