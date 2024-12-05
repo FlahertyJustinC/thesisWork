@@ -61,13 +61,14 @@ ClassImp(UsefulAtriStationEvent);
 // #endif
 
 //Including my tools file.  Should update name to avoid confusion with Tools.h above.
-#include "tools.h"
+#include "polRecoTools.h"
 
 //TODO: Have outgoing pointer equal the incoming pointer by using a filler function to copy the original information, then I replace the voltage info with my deconvolved voltage.
 UsefulAtriStationEvent *usefulAtriEvPtr;
 UsefulAtriStationEvent *usefulAtriEvPtrOut;
 UsefulAtriStationEvent *usefulAtriCswPtrOut;
 
+//Initializing some keyword arguments
 bool debugMode = false;
 bool separateCsw = true;
 bool useMCTruth = false;
@@ -203,6 +204,7 @@ int main(int argc, char **argv)
     double directPeakTimes[16];
     double refPeakTimes[16];   
     double psiReco[8];  
+    double psiRecoMean;
     double psiRecoCsw[8];  
     double psiRecoCsw2[8];  
     double psiRecoCsw3[8];  

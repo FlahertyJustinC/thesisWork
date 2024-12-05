@@ -26,9 +26,9 @@ UsefulAtriStationEvent *usefulAtriEvPtr;
 #include "IceModel.h"
 
 // #include "helper.h"
-#include "tools.h"
+#include "polRecoTools.h"
 
-
+//Initializing some keyword arguments
 bool noCutoff = false;
 bool debugMode = false;
 bool useMcTruth = false;
@@ -267,8 +267,11 @@ int main(int argc, char **argv)
     double weight_out;
     double weight;
     double snrs_out[16];
+    double snrs_fullBand_out[16];
     double v_snr_out;
     double h_snr_out;
+    double v_snr_fullBand_out;
+    double h_snr_fullBand_out;    
     outTree->Branch("peakCorrs", peakCorrs_out, TString::Format("peakCoors[%d]/D",numScanned));
     outTree->Branch("peakThetas", peakThetas_out, TString::Format("peakThetas[%d]/D",numScanned));
     outTree->Branch("peakPhis", peakPhis_out, TString::Format("peakPhis[%d]/D",numScanned));
@@ -297,8 +300,11 @@ int main(int argc, char **argv)
     
     outTree->Branch("weight", &weight_out, "weight_out/D");
     outTree->Branch("snrs", snrs_out, "snrs_out[16]/D");
+    outTree->Branch("snrs_fullBand", snrs_fullBand_out, "snrs_fullBand_out[16]/D");
     outTree->Branch("v_snr", &v_snr_out, "v_snr_out/D");
     outTree->Branch("h_snr", &h_snr_out, "h_snr_out/D");
+    outTree->Branch("v_snr_fullBand", &v_snr_fullBand_out, "v_snr_fullBand_out/D");
+    outTree->Branch("h_snr_fullBand", &h_snr_fullBand_out, "h_snr_fullBand_out/D");    
     
     //These are to accomodate a real data reconstruction
     outTree->Branch("eventNumber", &eventNumber, "eventNumber/I");
@@ -585,7 +591,9 @@ int main(int argc, char **argv)
         
         //TODO: The double peak finder and cropping isn't playing nice with a simulated event with only one peak.
         std::map<int, TGraph*> interpolatedWaveforms;
+        std::map<int, TGraph*> interpolatedWaveformsBeforeBandpass;
         std::vector<double> noiseRms(16);
+        std::vector<double> noiseRmsBeforeBandpass(16);
         
         TGraph *grCswV;
         TGraph *grCswH;
@@ -619,8 +627,8 @@ int main(int argc, char **argv)
             // }
             TGraph *grIntV = FFTtools::getInterpolatedGraph(grV, dt);  //Real data interpolation
             TGraph *grIntH = FFTtools::getInterpolatedGraph(grH, dt);  //Real data interpolation
-            // TGraph *grIntVBeforeBandpass = FFTtools::getInterpolatedGraph(grV, dt);  //Real data interpolation
-            // TGraph *grIntHBeforeBandpass = FFTtools::getInterpolatedGraph(grH, dt);  //Real data interpolation            
+            TGraph *grIntVBeforeBandpass = FFTtools::getInterpolatedGraph(grV, dt);  //Real data interpolation
+            TGraph *grIntHBeforeBandpass = FFTtools::getInterpolatedGraph(grH, dt);  //Real data interpolation            
             
             //Apply bandpass filter to eliminate out of band noise
             if (applyBandpass) {
@@ -642,7 +650,9 @@ int main(int argc, char **argv)
             getAbsMaximum_N(grIntH, numSearchPeaks, peakSeparation, hhHitTimes, hhPeakIntPowers);
             
             double noiseRmsChV = calculateNoiseRMS(grIntV);
-            double noiseRmsChH = calculateNoiseRMS(grIntH);          
+            double noiseRmsChH = calculateNoiseRMS(grIntH); 
+            double noiseRmsChVBeforeBandpass = calculateNoiseRMS(grIntVBeforeBandpass);
+            double noiseRmsChHBeforeBandpass = calculateNoiseRMS(grIntHBeforeBandpass);             
             
             //Compare Vpol and Hpol peaks, choosing the larger peaked channel to serve as the primary peak.
             double peakThresholdV = noiseRmsChV*snrThreshold;
@@ -655,10 +665,12 @@ int main(int argc, char **argv)
             //Adding condition where if the primary peaks are less than their peak thresholds, we grab noise from the end of the waveform and calculate a new threshold.
             if (vvPeakIntPowers[0] < peakThresholdV) {
                 noiseRmsChV = calculateNoiseRMS(grIntV, -100);
+                noiseRmsChVBeforeBandpass = calculateNoiseRMS(grIntVBeforeBandpass, -100);
                 peakThresholdV = noiseRmsChV*4;
             }
             if (hhPeakIntPowers[0] < peakThresholdH) {
                 noiseRmsChH = calculateNoiseRMS(grIntH, -100);
+                noiseRmsChHBeforeBandpass = calculateNoiseRMS(grIntHBeforeBandpass, -100);
                 peakThresholdH = noiseRmsChH*4;
             }            
             
@@ -676,6 +688,8 @@ int main(int argc, char **argv)
                 
             noiseRms[i] = noiseRmsChV;
             noiseRms[i+8]=noiseRmsChH;
+            noiseRmsBeforeBandpass[i] = noiseRmsChVBeforeBandpass;
+            noiseRmsBeforeBandpass[i+8]=noiseRmsChHBeforeBandpass;            
             
             if (debugMode) {
                 cout <<"primaryPeakIntPowers[0] = " << primaryPeakIntPowers[0] << endl;
@@ -803,7 +817,8 @@ int main(int argc, char **argv)
             if (debugMode){
                 cout << "padded waveform length = " << grIntV->GetN() << endl;
             }
-            interpolatedWaveforms[i] = grIntV;          
+            interpolatedWaveforms[i] = grIntV;  
+            interpolatedWaveformsBeforeBandpass[i] = grIntVBeforeBandpass;  
             
             if (debugMode){
                 cout << "**********************" << endl;           
@@ -829,7 +844,8 @@ int main(int argc, char **argv)
             if (debugMode){
                 cout << "padded waveform length = " << grIntV->GetN() << endl;
             }
-            interpolatedWaveforms[i+8] = grIntH;                 
+            interpolatedWaveforms[i+8] = grIntH; 
+            interpolatedWaveformsBeforeBandpass[i+8] = grIntHBeforeBandpass; 
             
             
         }
@@ -840,6 +856,8 @@ int main(int argc, char **argv)
             sprintf(title, "%s/waveform.png", outputDir);
             c->Print(title);
         }
+        
+        cout << "aaa" << endl;
     
         std::map<int, double> snrs; // map of channels to SNRs
         for(int i=0; i<16; i++){
@@ -854,6 +872,23 @@ int main(int argc, char **argv)
             }
         }
         
+        cout << "bbb" << endl;
+        
+        std::map<int, double> snrs_fullBand; // map of channels to SNRs
+        for(int i=0; i<16; i++){
+            
+            double peak_max = TMath::MaxElement(interpolatedWaveformsBeforeBandpass[i]->GetN(), interpolatedWaveformsBeforeBandpass[i]->GetY());
+            double peak_min = abs(TMath::MinElement(interpolatedWaveformsBeforeBandpass[i]->GetN(), interpolatedWaveformsBeforeBandpass[i]->GetY()));
+            if(peak_min > peak_max){
+                snrs_fullBand[i] = peak_min/noiseRmsBeforeBandpass[i];
+            }
+            else{
+                snrs_fullBand[i] = peak_max/noiseRmsBeforeBandpass[i];
+            }
+        }        
+        
+        cout << "ccc" << endl;
+        
         // cout << "bbb" << endl;
         std::vector<double> snrs_v;
         std::vector<double> snrs_h;
@@ -865,6 +900,17 @@ int main(int argc, char **argv)
         sort(snrs_h.begin(), snrs_h.end(), greater<double>()); // sort largest to smallest
         double the_snr_v = snrs_v[2];
         double the_snr_h = snrs_h[2];
+        
+        std::vector<double> snrs_v_fullBand;
+        std::vector<double> snrs_h_fullBand;
+        for(int i=0; i<8; i++) snrs_v_fullBand.push_back(snrs_fullBand[i]);
+        for(int i=8; i<16; i++) snrs_h_fullBand.push_back(snrs_fullBand[i]);
+        // cout << "ccc" << endl;
+        //Grabs median-ish snr (third largest of eight) and stores as the VSNR and HSNR. 
+        sort(snrs_v_fullBand.begin(), snrs_v_fullBand.end(), greater<double>()); // sort largest to smallest
+        sort(snrs_h_fullBand.begin(), snrs_h_fullBand.end(), greater<double>()); // sort largest to smallest
+        double the_snr_v_fullBand = snrs_v_fullBand[2];
+        double the_snr_h_fullBand = snrs_h_fullBand[2];        
 
         std::map<int, double> weights_V; // V weights
         double tot_weight_v = 0.;
@@ -900,10 +946,15 @@ int main(int argc, char **argv)
             weights_H[pairNum] = snr_prod;
         }
         
+        cout << "ddd" << endl;
+        
 
-        for(int i=0; i<weights_H.size(); i++){ weights_H[i]/=tot_weight_h; }      
+        for(int i=0; i<weights_H.size(); i++){ weights_H[i]/=tot_weight_h; }     
+        cout << "eee" << endl;
         std::vector<TGraph*> corrFunctions_V = theCorrelators[0]->GetCorrFunctions(pairs_V, interpolatedWaveforms, true); 
         std::vector<TGraph*> corrFunctions_H = theCorrelators[0]->GetCorrFunctions(pairs_H, interpolatedWaveforms, true); 
+        
+        cout << "fff" << endl;
 
         std::vector<double> peakCorrs;
         std::vector<double> peakThetas;
@@ -1279,6 +1330,12 @@ int main(int argc, char **argv)
         }
         v_snr_out = the_snr_v;
         h_snr_out = the_snr_h;
+        
+        for(int i=0; i<16; i++){
+            snrs_fullBand_out[i] = snrs_fullBand[i];
+        }
+        v_snr_fullBand_out = the_snr_v_fullBand;
+        h_snr_fullBand_out = the_snr_h_fullBand;        
 
         outTree->Fill();       
 
