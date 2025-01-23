@@ -391,8 +391,17 @@ int main(int argc, char **argv)
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
     std::vector<int> excludedChannels;
     getExcludedChannels(excludedChannels, settings1, detector);
-    std::map< int, std::vector<int> > pairs_V = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kVertical, excludedChannels, settings1->DETECTOR_YEAR);  //This throws the usefulEvent error
-    std::map< int, std::vector<int> > pairs_H = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kHorizontal, excludedChannels, settings1->DETECTOR_YEAR);    
+    std::map< int, std::vector<int> > pairs_V = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kVertical, excludedChannels);  //This throws the usefulEvent error
+    std::map< int, std::vector<int> > pairs_H = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kHorizontal, excludedChannels);    
+		// MACHTAY LOOK HERE
+		// We need to get arrivalDelays for the GetInterferometricMap function
+		// This is done by acting on the pairs_V and pairs_H
+		// (See AraCorrelator/makeRTCorrelationsMaps.cxx -- lines 73 - 81)
+		//auto arrivalDelays_V = theCorrelators[0]->GetArrivalDelays(pairs_V);
+		//auto arrivalDelays_H = theCorrelators[0]->GetArrivalDelays(pairs_H);
+		std::pair< std::vector< std::vector< std::vector< int > > >, std::vector< std::vector< std::vector< double > > > > arrivalDelays_V;
+		std::pair< std::vector< std::vector< std::vector< int > > >, std::vector< std::vector< std::vector< double > > > > arrivalDelays_H;
+
     
     // Check if sim or real data file by checking for existence of AraTree
     TTree *simSettingsTree;
@@ -855,8 +864,8 @@ int main(int argc, char **argv)
         
 
         for(int i=0; i<weights_H.size(); i++){ weights_H[i]/=tot_weight_h; }     
-        std::vector<TGraph*> corrFunctions_V = theCorrelators[0]->GetCorrFunctions(pairs_V, interpolatedWaveforms, true); 
-        std::vector<TGraph*> corrFunctions_H = theCorrelators[0]->GetCorrFunctions(pairs_H, interpolatedWaveforms, true); 
+        std::vector<TGraph> corrFunctions_V = theCorrelators[0]->GetCorrFunctions(pairs_V, interpolatedWaveforms, true); 
+        std::vector<TGraph> corrFunctions_H = theCorrelators[0]->GetCorrFunctions(pairs_H, interpolatedWaveforms, true); 
 
         std::vector<double> peakCorrs;
         std::vector<double> peakThetas;
@@ -873,22 +882,31 @@ int main(int argc, char **argv)
             }
             
                 
-            std::vector<TH2D*> maps;
+            std::vector<TH2D> maps;
 
-            maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_V, corrFunctions_V, 0, weights_V)); // direct solution)
-            maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_V, corrFunctions_V, 1, weights_V)); // reflected solution
-            maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, 0, weights_H)); // direct solution
-            maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, 1, weights_H)); // reflected solution           
+						// MACHTAY LOOK HERE
+						// Looks like these should have an additional argument 
+						// It should be in the third position
+						// The new argument is for the arrivalDelays
+						// 
+            maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_V, corrFunctions_V, arrivalDelays_V, 0, weights_V)); // direct solution)
+            maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_V, corrFunctions_V, arrivalDelays_V, 1, weights_V)); // reflected solution
+            maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, arrivalDelays_H, 0, weights_H)); // direct solution
+            maps.push_back(theCorrelators[r]->GetInterferometricMap(pairs_H, corrFunctions_H, arrivalDelays_H, 1, weights_H)); // reflected solution           
 
+						// MACHTAY LOOK HERE
+						// Trouble with the getCorrMapPeak function
+						// Since I changed the maps definition to not use *, I need to
+						//   pass it by reference to the getCorrMapPeak function
             std::vector<double> bestOne;
             for(int i=0; i<4; i++){
                 double peakCorr, peakTheta, peakPhi;
-                getCorrMapPeak(maps[i], peakTheta, peakPhi, peakCorr);   
+                getCorrMapPeak(&maps[i], peakTheta, peakPhi, peakCorr);   
                 bestOne.push_back(peakCorr);
             }
             auto it = max_element(std::begin(bestOne), std::end(bestOne));
             int element = distance(bestOne.begin(), it);
-            getCorrMapPeak(maps[element], peakTheta, peakPhi, peakCorr);
+            getCorrMapPeak(&maps[element], peakTheta, peakPhi, peakCorr);
             peakCorrs.push_back(peakCorr);
 
             peakThetas.push_back(peakTheta); 
@@ -902,9 +920,13 @@ int main(int argc, char **argv)
 
             printf("    Correlated radius %.2f, Corr %.4f \n",radii[r], peakCorr);
 
+						// MACHTAY LOOK HERE
+						// We don't need this anymore since we don't define maps by 
+						//   reference anymore
+						/*
             for(int i=0; i<4; i++){
                 delete maps[i];
-            }
+            }*/
         }
 
         int element;
@@ -943,34 +965,40 @@ int main(int argc, char **argv)
         
         
         //Recreate map of best solution and plot it.
-        std::vector<TH2D*> maps;
+				// MACHTAY LOOK HERE
+				// I'm pretty sure this is more of the same of what we had before
+				// Here's the prescription:
+				//  1. Changes <TH2D*> maps to <TH2D> maps
+				//  2. Add arrivalDelays_V/H to getInterferometricMaps call
+				//
+        std::vector<TH2D> maps;
 
-        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_V, corrFunctions_V, 0, weights_V)); // direct solution)
-        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_V, corrFunctions_V, 1, weights_V)); // reflected solution
-        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_H, corrFunctions_H, 0, weights_H)); // direct solution
-        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_H, corrFunctions_H, 1, weights_H)); // reflected solution     
+        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_V, corrFunctions_V, arrivalDelays_V, 0, weights_V)); // direct solution)
+        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_V, corrFunctions_V, arrivalDelays_V, 1, weights_V)); // reflected solution
+        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_H, corrFunctions_H, arrivalDelays_H, 0, weights_H)); // direct solution
+        maps.push_back(theCorrelators[element]->GetInterferometricMap(pairs_H, corrFunctions_H, arrivalDelays_H, 1, weights_H)); // reflected solution     
         
 
         if (debugMode){
         
                 // Debugging - JCF 6/7/2023
                 TCanvas *c = new TCanvas("","", 1200, 950);            
-                maps[0]->Draw("colz");
-                // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
-                // maps[0]->GetYaxis()->SetTitle("Theta [deg]");
-                maps[0]->GetXaxis()->SetTitle("Azimuth [degrees]");
-                maps[0]->GetYaxis()->SetTitle("Zenith [degrees]");                
-                maps[0]->GetYaxis()->SetTitleSize(0.05);
-                maps[0]->GetYaxis()->SetLabelSize(0.03);
-                // maps[0]->GetYaxis()->SetTitleOffset(0.6);
-                maps[0]->GetYaxis()->SetTitleOffset(0.8);
-                maps[0]->GetXaxis()->SetTitleSize(0.05);
-                maps[0]->GetXaxis()->SetLabelSize(0.03);
-                // maps[0]->GetXaxis()->SetTitleOffset(0.6);
-                maps[0]->GetXaxis()->SetTitleOffset(0.8);
+                maps[0].Draw("colz");
+                // maps[0].GetXaxis()->SetTitle("Phi [deg]");
+                // maps[0].GetYaxis()->SetTitle("Theta [deg]");
+                maps[0].GetXaxis()->SetTitle("Azimuth [degrees]");
+                maps[0].GetYaxis()->SetTitle("Zenith [degrees]");                
+                maps[0].GetYaxis()->SetTitleSize(0.05);
+                maps[0].GetYaxis()->SetLabelSize(0.03);
+                // maps[0].GetYaxis()->SetTitleOffset(0.6);
+                maps[0].GetYaxis()->SetTitleOffset(0.8);
+                maps[0].GetXaxis()->SetTitleSize(0.05);
+                maps[0].GetXaxis()->SetLabelSize(0.03);
+                // maps[0].GetXaxis()->SetTitleOffset(0.6);
+                maps[0].GetXaxis()->SetTitleOffset(0.8);
                 gStyle->SetOptStat(0);
-                maps[0]->GetXaxis()->CenterTitle();
-                maps[0]->GetYaxis()->CenterTitle();
+                maps[0].GetXaxis()->CenterTitle();
+                maps[0].GetYaxis()->CenterTitle();
                 gPad->SetRightMargin(0.15);
                 // Plot calculated pulser location
                 TLine *ltheta = new TLine(-180, vertexTheta, 180, vertexTheta);
@@ -985,29 +1013,29 @@ int main(int argc, char **argv)
                 // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
                 // sprintf(plotTitle,"VPol D A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
                 sprintf(plotTitle,"Sample Simulated Neutrino - Station A%d Radius %f", station, bestR_out);            
-                maps[0]->SetTitle(plotTitle);
+                maps[0].SetTitle(plotTitle);
                 c->SaveAs(title);
                 delete c;
         }
         if (debugMode){
 
                 TCanvas *c = new TCanvas("","", 1200, 950);            
-                maps[1]->Draw("colz");
-                // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
-                // maps[0]->GetYaxis()->SetTitle("Theta [deg]");
-                maps[1]->GetXaxis()->SetTitle("Azimuth [degrees]");
-                maps[1]->GetYaxis()->SetTitle("Zenith [degrees]");                
-                maps[1]->GetYaxis()->SetTitleSize(0.05);
-                maps[1]->GetYaxis()->SetLabelSize(0.03);
-                // maps[0]->GetYaxis()->SetTitleOffset(0.6);
-                maps[1]->GetYaxis()->SetTitleOffset(0.8);
-                maps[1]->GetXaxis()->SetTitleSize(0.05);
-                maps[1]->GetXaxis()->SetLabelSize(0.03);
-                // maps[0]->GetXaxis()->SetTitleOffset(0.6);
-                maps[1]->GetXaxis()->SetTitleOffset(0.8);
+                maps[1].Draw("colz");
+                // maps[0].GetXaxis()->SetTitle("Phi [deg]");
+                // maps[0].GetYaxis()->SetTitle("Theta [deg]");
+                maps[1].GetXaxis()->SetTitle("Azimuth [degrees]");
+                maps[1].GetYaxis()->SetTitle("Zenith [degrees]");                
+                maps[1].GetYaxis()->SetTitleSize(0.05);
+                maps[1].GetYaxis()->SetLabelSize(0.03);
+                // maps[0].GetYaxis()->SetTitleOffset(0.6);
+                maps[1].GetYaxis()->SetTitleOffset(0.8);
+                maps[1].GetXaxis()->SetTitleSize(0.05);
+                maps[1].GetXaxis()->SetLabelSize(0.03);
+                // maps[0].GetXaxis()->SetTitleOffset(0.6);
+                maps[1].GetXaxis()->SetTitleOffset(0.8);
                 gStyle->SetOptStat(0);
-                maps[1]->GetXaxis()->CenterTitle();
-                maps[1]->GetYaxis()->CenterTitle();
+                maps[1].GetXaxis()->CenterTitle();
+                maps[1].GetYaxis()->CenterTitle();
                 gPad->SetRightMargin(0.15);
                 // Plot calculated pulser location
                 TLine *ltheta = new TLine(-180, vertexTheta, 180, vertexTheta);
@@ -1021,7 +1049,7 @@ int main(int argc, char **argv)
                 char plotTitle[500];
                 // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
                 sprintf(plotTitle,"VPol R A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
-                maps[1]->SetTitle(plotTitle);
+                maps[1].SetTitle(plotTitle);
                 c->SaveAs(title);
                 delete c;
                 // End debugging
@@ -1031,22 +1059,22 @@ int main(int argc, char **argv)
         
                 // Debugging - JCF 6/7/2023
                 TCanvas *c = new TCanvas("","", 1200, 950);            
-                maps[2]->Draw("colz");
-                // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
-                // maps[0]->GetYaxis()->SetTitle("Theta [deg]");
-                maps[2]->GetXaxis()->SetTitle("Azimuth [degrees]");
-                maps[2]->GetYaxis()->SetTitle("Zenith [degrees]");                
-                maps[2]->GetYaxis()->SetTitleSize(0.05);
-                maps[2]->GetYaxis()->SetLabelSize(0.03);
-                // maps[0]->GetYaxis()->SetTitleOffset(0.6);
-                maps[2]->GetYaxis()->SetTitleOffset(0.8);
-                maps[2]->GetXaxis()->SetTitleSize(0.05);
-                maps[2]->GetXaxis()->SetLabelSize(0.03);
-                // maps[0]->GetXaxis()->SetTitleOffset(0.6);
-                maps[2]->GetXaxis()->SetTitleOffset(0.8);
+                maps[2].Draw("colz");
+                // maps[0].GetXaxis()->SetTitle("Phi [deg]");
+                // maps[0].GetYaxis()->SetTitle("Theta [deg]");
+                maps[2].GetXaxis()->SetTitle("Azimuth [degrees]");
+                maps[2].GetYaxis()->SetTitle("Zenith [degrees]");                
+                maps[2].GetYaxis()->SetTitleSize(0.05);
+                maps[2].GetYaxis()->SetLabelSize(0.03);
+                // maps[0].GetYaxis()->SetTitleOffset(0.6);
+                maps[2].GetYaxis()->SetTitleOffset(0.8);
+                maps[2].GetXaxis()->SetTitleSize(0.05);
+                maps[2].GetXaxis()->SetLabelSize(0.03);
+                // maps[0].GetXaxis()->SetTitleOffset(0.6);
+                maps[2].GetXaxis()->SetTitleOffset(0.8);
                 gStyle->SetOptStat(0);
-                maps[2]->GetXaxis()->CenterTitle();
-                maps[2]->GetYaxis()->CenterTitle();
+                maps[2].GetXaxis()->CenterTitle();
+                maps[2].GetYaxis()->CenterTitle();
                 gPad->SetRightMargin(0.15);
                 // Plot calculated pulser location
                 TLine *ltheta = new TLine(-180, vertexTheta, 180, vertexTheta);
@@ -1060,29 +1088,29 @@ int main(int argc, char **argv)
                 char plotTitle[500];
                 // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
                 sprintf(plotTitle,"HPol D A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
-                maps[2]->SetTitle(plotTitle);
+                maps[2].SetTitle(plotTitle);
                 c->SaveAs(title);
                 delete c;
         }
         if (debugMode){
 
                 TCanvas *c = new TCanvas("","", 1200, 950);            
-                maps[3]->Draw("colz");
-                // maps[0]->GetXaxis()->SetTitle("Phi [deg]");
-                // maps[0]->GetYaxis()->SetTitle("Theta [deg]");
-                maps[3]->GetXaxis()->SetTitle("Azimuth [degrees]");
-                maps[3]->GetYaxis()->SetTitle("Zenith [degrees]");                
-                maps[3]->GetYaxis()->SetTitleSize(0.05);
-                maps[3]->GetYaxis()->SetLabelSize(0.03);
-                // maps[0]->GetYaxis()->SetTitleOffset(0.6);
-                maps[3]->GetYaxis()->SetTitleOffset(0.8);
-                maps[3]->GetXaxis()->SetTitleSize(0.05);
-                maps[3]->GetXaxis()->SetLabelSize(0.03);
-                // maps[0]->GetXaxis()->SetTitleOffset(0.6);
-                maps[3]->GetXaxis()->SetTitleOffset(0.8);
+                maps[3].Draw("colz");
+                // maps[0].GetXaxis()->SetTitle("Phi [deg]");
+                // maps[0].GetYaxis()->SetTitle("Theta [deg]");
+                maps[3].GetXaxis()->SetTitle("Azimuth [degrees]");
+                maps[3].GetYaxis()->SetTitle("Zenith [degrees]");                
+                maps[3].GetYaxis()->SetTitleSize(0.05);
+                maps[3].GetYaxis()->SetLabelSize(0.03);
+                // maps[0].GetYaxis()->SetTitleOffset(0.6);
+                maps[3].GetYaxis()->SetTitleOffset(0.8);
+                maps[3].GetXaxis()->SetTitleSize(0.05);
+                maps[3].GetXaxis()->SetLabelSize(0.03);
+                // maps[0].GetXaxis()->SetTitleOffset(0.6);
+                maps[3].GetXaxis()->SetTitleOffset(0.8);
                 gStyle->SetOptStat(0);
-                maps[3]->GetXaxis()->CenterTitle();
-                maps[3]->GetYaxis()->CenterTitle();
+                maps[3].GetXaxis()->CenterTitle();
+                maps[3].GetYaxis()->CenterTitle();
                 gPad->SetRightMargin(0.15);
                 // Plot calculated pulser location
                 TLine *ltheta = new TLine(-180, vertexTheta, 180, vertexTheta);
@@ -1096,14 +1124,17 @@ int main(int argc, char **argv)
                 char plotTitle[500];
                 // sprintf(plotTitle,"A%d Run %s Event %d Radius %.2f", station, runNum, eventNumber, radii[r]);
                 sprintf(plotTitle,"HPol R A%d Run %s Event %d Radius %f", station, runNum, eventNumber, bestR_out);
-                maps[3]->SetTitle(plotTitle);
+                maps[3].SetTitle(plotTitle);
                 c->SaveAs(title);
                 delete c;
                 // End debugging
         }        
+				// MACHTAY LOOK HERE
+				// Don't need this anymore since maps isn't a pointer
+				/*
         for(int i=0; i<4; i++){
             delete maps[i];
-        }     
+        } */    
 
         
         // then the MCtruth quantities (if applicable)
@@ -1139,18 +1170,19 @@ int main(int argc, char **argv)
         
         for(int i=0; i<16; i++){
 
+								// MACHTAY LOOK HERE
+								// I think the issue here is that ConvertAnglestoTH2DGlobalBin
+								//   has 4 arguments, but should only have the first two
             int this_binTheta, this_binPhi;
             if (useMcTruth) {
-                theCorrelators[element]->ConvertAngleToBins(trueTheta_out, truePhi_out, 
-                    this_binTheta, this_binPhi);
+                theCorrelators[element]->ConvertAnglesToTH2DGlobalBin(trueTheta_out, truePhi_out);//, this_binTheta, this_binPhi);
             }
             // if (usePulserCalculation) {
-            //     theCorrelators[element]->ConvertAngleToBins(nearestTheta, nearestPhi, 
+            //     theCorrelators[element]->ConvertAnglesToTH2DGlobalBin(nearestTheta, nearestPhi, 
             //         this_binTheta, this_binPhi);
             // }
             else {
-                theCorrelators[element]->ConvertAngleToBins(bestTheta_out, bestPhi_out, 
-                    this_binTheta, this_binPhi);
+                theCorrelators[element]->ConvertAnglesToTH2DGlobalBin(bestTheta_out, bestPhi_out);//, this_binTheta, this_binPhi);
             }
             double this_arrivalTheta, this_arrivalPhi;
             theCorrelators[element]->LookupArrivalAngles(i, peakSol[element], 
@@ -1164,7 +1196,7 @@ int main(int argc, char **argv)
                 this_launchTheta, this_launchPhi
             );            
 
-            double this_arrivalTime = theCorrelators[element]->LookupArrivalTimes(i, peakSol[element], this_binTheta, this_binPhi);
+            double this_arrivalTime = theCorrelators[element]->LookupArrivalTime(i, peakSol[element], this_binTheta, this_binPhi);
             reco_arrivalThetas_out[i] = this_arrivalTheta*180/PI; //Previous saved in radians, Converting to degrees - JCF 4/11/2024
             reco_arrivalPhis_out[i] = this_arrivalPhi*180/PI; 
             arrivalTimes_out[i] = this_arrivalTime;

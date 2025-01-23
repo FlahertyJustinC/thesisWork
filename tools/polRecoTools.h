@@ -825,7 +825,7 @@ double getNofzAtVertex(AraGeomTool *geomTool, UsefulAtriStationEvent *usefulAtri
 }
 
 void setPedestalFile(AraEventCalibrator *cal, int station, char* runNum) {
-    char* pedestalLocation = "/fs/project/PAS0654/ARA_DATA/pedestalFiles/"; //Hardcoding pedestal path
+    const char* pedestalLocation = "/fs/project/PAS0654/ARA_DATA/pedestalFiles/"; //Hardcoding pedestal path
     char* pedestalFile;
     fstream fileStream;
     char test1[400];
