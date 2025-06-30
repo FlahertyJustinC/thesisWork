@@ -391,8 +391,8 @@ int main(int argc, char **argv)
     //Use the getTrigMasking function to use the same channels that triggering used for the reconstruction
     std::vector<int> excludedChannels;
     getExcludedChannels(excludedChannels, settings1, detector);
-    std::map< int, std::vector<int> > pairs_V = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kVertical, excludedChannels, settings1->DETECTOR_YEAR);  //This throws the usefulEvent error
-    std::map< int, std::vector<int> > pairs_H = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kHorizontal, excludedChannels, settings1->DETECTOR_YEAR);    
+    std::map< int, std::vector<int> > pairs_V = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kVertical, excludedChannels);  //This throws the usefulEvent error
+    std::map< int, std::vector<int> > pairs_H = theCorrelators[0]->SetupPairs(station, geomTool, AraAntPol::kHorizontal, excludedChannels);    
     
     // Check if sim or real data file by checking for existence of AraTree
     TTree *simSettingsTree;
