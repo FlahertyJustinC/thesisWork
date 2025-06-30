@@ -796,6 +796,7 @@ void testTrajectoryCalculation(Event *event, Report *report, double launch_theta
 
 double getStationDepth(AraGeomTool *geomTool, int stationId) {
     double station_z = 0;
+    cout << "Station ID: " << stationId << endl;
     for (int i=0; i<16; i++) {
         station_z += geomTool->getStationInfo(stationId)->getAntennaInfo(i)->antLocation[2]/16;
     }
@@ -961,7 +962,7 @@ void getPulserVertex(Detector *detector, Settings *settings1, AraGeomTool *geomT
     TVector3 sourceArrayVector;
     sourceArrayVector[0] = sourceEasting;
     sourceArrayVector[1] = sourceNorthing;
-    sourceArrayVector[2] = -1*pulserDepth - getStationDepth(geomTool, settings1->DETECTOR_STATION);
+    sourceArrayVector[2] = -1*pulserDepth - getStationDepth(geomTool, settings1->DETECTOR_STATION_ARAROOT);
     
     //Convert array vector into station-centric coordinates
     TVector3 sourceStationVector = geomTool->convertArrayToStationCoords(stationId, sourceArrayVector); 
