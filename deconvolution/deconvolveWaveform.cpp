@@ -199,7 +199,8 @@ int main(int argc, char **argv)
     double psiRecoCsw[8];  
     double psiRecoCsw2[8];  
     double psiRecoCsw3[8];  
-    double psiRecoCsw4[8];  
+    double psiRecoCsw4[8];
+    double pulserDepth_out;  
     double psiTrue[8];
     double psiTrue2[8];
     double psiTrue3[8];
@@ -335,6 +336,7 @@ int main(int argc, char **argv)
     TTree *outTree = eventTree->CloneTree(0);
     outTree->Branch("UsefulAtriStationEvent", &usefulAtriEvPtrOut);
     outTree->Branch("bestCorr", &bestCorr, "bestCorr/D");
+    outTree->Branch("pulserDepth", &pulserDepth_out, "pulserDepth/D");
     outTree->Branch("psiReco", &psiReco, "psiReco[8]/D");
     outTree->Branch("psiTrue", &psiTrue, "psiTrue[8]/D");
     outTree->Branch("theta_nutraject", &theta_nutraject, "theta_nutraject[8]/D");
@@ -345,6 +347,7 @@ int main(int argc, char **argv)
     TTree *outTreeCsw = new TTree("coherentSum", "coherentSum");
     outTreeCsw->Branch("UsefulAtriStationEvent", &usefulAtriCswPtrOut); 
     outTreeCsw->Branch("bestCorr", &bestCorr, "bestCorr/D");
+    outTreeCsw->Branch("pulserDepth", &pulserDepth_out, "pulserDepth/D");
     outTreeCsw->Branch("psiReco", &psiRecoCsw, "psiReco[8]/D");
     outTreeCsw->Branch("psiReco2", &psiRecoCsw2, "psiReco2[8]/D");
     outTreeCsw->Branch("psiReco3", &psiRecoCsw3, "psiReco3[8]/D");
@@ -433,7 +436,7 @@ int main(int argc, char **argv)
         catch(std::out_of_range) {
             cout << "Pulser depth at " << runNumber << endl;
         }         
-        
+        pulserDepth_out = pulserDepth;
         
         //Need this for importing the vertexReco from simulated data, as simulated data gets stored by string, then antenna.
         int vertexRecoElectToRFChan[] = {14,2,6,10,  //VPols
